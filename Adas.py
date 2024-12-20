@@ -25,8 +25,8 @@ class Forward_collision_warning_mqtt:
                     min_ttc = 0.5,
                     average_reaction_time = 2.5,
                     velocity_threshold = 2.77,
-                    max_steer_angle = 40,
-                    angle_steer_tollerance = 0.05,
+                    max_radiant_steer_angle = 1, # circa 57 gradi
+                    steer_tollerance = 0.02,
                     radar_range = 285,
                     radar_pitch = 5          
         ):
@@ -45,8 +45,8 @@ class Forward_collision_warning_mqtt:
             self.__min_ttc = min_ttc
             self.__average_reaction_time = average_reaction_time
             self.__velocity_threshold = velocity_threshold
-            self.__max_steer_angle = max_steer_angle
-            self.__angle_steer_tollerance = angle_steer_tollerance
+            self.__max_radiant_steer_angle = max_radiant_steer_angle
+            self.__steer_tollerance = steer_tollerance
             self.__radar_range = radar_range
             self.__radar_pitch = radar_pitch
 
@@ -100,18 +100,18 @@ class Forward_collision_warning_mqtt:
             asphalt_friction_coefficient = self.__get_asphalt_friction_coefficient()
             asphalt_friction_deceleration = 9.81 * asphalt_friction_coefficient
             control = self.__attached_vehicle.get_control()
-            if -self.__angle_steer_tollerance < control.steer < self.__angle_steer_tollerance:
-                steering_angle = control.steer * self.__max_steer_angle
+            if -self.__steer_tollerance < control.steer < self.__steer_tollerance:
+                radiant_steer_angle = control.steer * self.__max_radiant_steer_angle
             else:
-                steering_angle = 0
+                radiant_steer_angle = 0
             for detection in radar_data:
                 vehicle_velocity = self.__get_attached_vehicle_velocity()
                 if vehicle_velocity > self.__velocity_threshold:
-                    if detection.velocity < 0 and self.__check_horizontal_collision(detection.azimuth, detection.depth, steering_angle) and self.__check_vertical_collision(detection.altitude, detection.depth):
-                        projected_depth = self.__get_projected_depth(detection.azimuth, detection.altitude, detection.depth, steering_angle)
-                        max_depth = self.__get_max_depth(detection.azimuth, steering_angle)
+                    if detection.velocity < 0 and self.__check_horizontal_collision(detection.azimuth, detection.depth, radiant_steer_angle) and self.__check_vertical_collision(detection.altitude, detection.depth):
+                        projected_depth = self.__get_projected_depth(detection.azimuth, detection.altitude, detection.depth, radiant_steer_angle)
+                        max_depth = self.__get_max_depth(detection.azimuth, radiant_steer_angle)
                         if projected_depth <= max_depth:
-                            projected_velocity = self.__get_projected_velocity(detection.azimuth, detection.altitude, detection.velocity, steering_angle) 
+                            projected_velocity = self.__get_projected_velocity(detection.azimuth, detection.altitude, detection.velocity, radiant_steer_angle) 
                             breaking_distance = self.__get_breaking_distance(projected_velocity, asphalt_friction_deceleration)
                             reacting_distance = max(0, projected_depth - breaking_distance)
                             ttc = reacting_distance / projected_velocity
@@ -145,19 +145,19 @@ class Forward_collision_warning_mqtt:
         def __get_radiant_radar_pitch(self):
             return math.radians(self.__radar_pitch)
 
-        def __check_horizontal_collision(self, azimuth, depth, steering_angle):
-            if self.__are_sign_equals(azimuth, steering_angle):
+        def __check_horizontal_collision(self, azimuth, depth, radiant_steer_angle):
+            if self.__are_sign_equals(azimuth, radiant_steer_angle):
                 return True
             return abs(depth * math.sin(azimuth)) < self.__vehicle_horizontal_dimension
 
         def __check_vertical_collision(self, altitude, depth):
             return abs(depth * math.sin(altitude + self.__get_radiant_radar_pitch())) < self.__vehicle_vertical_dimension 
 
-        def __get_projected_velocity(self, azimuth, altitude, velocity, steering_angle):
-            return abs(math.cos(azimuth - steering_angle) * math.cos(altitude + self.__get_radiant_radar_pitch()) * velocity)
+        def __get_projected_velocity(self, azimuth, altitude, velocity, radiant_steer_angle):
+            return abs(math.cos(azimuth - radiant_steer_angle) * math.cos(altitude + self.__get_radiant_radar_pitch()) * velocity)
 
-        def __get_projected_depth(self, azimuth, altitude, depth, steering_angle):
-            return abs(math.cos(azimuth - steering_angle) * math.cos(altitude + self.__get_radiant_radar_pitch()) * depth)
+        def __get_projected_depth(self, azimuth, altitude, depth, radiant_steer_angle):
+            return abs(math.cos(azimuth - radiant_steer_angle) * math.cos(altitude + self.__get_radiant_radar_pitch()) * depth)
 
         def __get_breaking_distance(self, projected_velocity, asphalt_friction_deceleration):
             return (1/2) * (projected_velocity**2) / asphalt_friction_deceleration
@@ -169,13 +169,13 @@ class Forward_collision_warning_mqtt:
                 velocity = -velocity
             return velocity
 
-        def __get_max_depth(self, azimuth, steering_angle):
-            if steering_angle == 0:
+        def __get_max_depth(self, azimuth, radiant_steer_angle):
+            if radiant_steer_angle == 0:
                 return self.__radar_range
-            if self.__are_sign_equals(azimuth, steering_angle):
-                stering_range = abs(self.__vehicle_horizontal_dimension / math.tan(steering_angle))
+            if self.__are_sign_equals(azimuth, radiant_steer_angle):
+                stering_range = abs(self.__vehicle_horizontal_dimension / math.tan(radiant_steer_angle))
             else:
-                stering_range = abs((self.__vehicle_horizontal_dimension / 2) / math.tan(steering_angle))
+                stering_range = abs((self.__vehicle_horizontal_dimension / 2) / math.tan(radiant_steer_angle))
             return min(stering_range, self.__radar_range)
 
         # Invio messaggi Mqtt
