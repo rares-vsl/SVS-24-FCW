@@ -20,16 +20,16 @@ class Forward_collision_warning_mqtt:
                     mqtt_port = 1883,
                     mqtt_topic = "carla/fcw_state",
                     min_fcw_state = Fcw_state.IDLE,
-                    vehicle_vertical_dimension = 0.75,
-                    vehicle_horizontal_dimension = 0.9,
+                    vehicle_half_vertical_dimension = 0.75,
+                    vehicle_half_horizontal_dimension = 0.9,
                     min_ttc = 0.5,
                     average_reaction_time = 2.5,
-                    velocity_threshold_1 = 2.77,
-                    velocity_threshold_2 = 6.94,
+                    velocity_threshold = 2.77,
                     max_radiant_steer_angle = 1, # circa 57 gradi
                     steer_tollerance = 0.02,
-                    radar_range = 285,
-                    low_velocity_pitch_simulation = 5          
+                    radar_range = 250,
+                    climb_ratio_th = 0.75,
+                    detected_point_th = 20     
         ):
             
             # Inizializzazione parametri
@@ -41,16 +41,16 @@ class Forward_collision_warning_mqtt:
             self.__visual_debug_pixel_life_time = visual_debug_pixel_life_time
             self.__mqtt_topic = mqtt_topic
             self.__min_fcw_state = min_fcw_state
-            self.__vehicle_vertical_dimension = vehicle_vertical_dimension
-            self.__vehicle_horizontal_dimension = vehicle_horizontal_dimension
+            self.__vehicle_half_vertical_dimension = vehicle_half_vertical_dimension
+            self.__vehicle_half_horizontal_dimension = vehicle_half_horizontal_dimension
             self.__min_ttc = min_ttc
             self.__average_reaction_time = average_reaction_time
-            self.__velocity_threshold_1 = velocity_threshold_1
-            self.__velocity_threshold_2 = velocity_threshold_2
+            self.__velocity_threshold = velocity_threshold
             self.__max_radiant_steer_angle = max_radiant_steer_angle
             self.__steer_tollerance = steer_tollerance
             self.__radar_range = radar_range
-            self.__low_velocity_pitch_simulation = low_velocity_pitch_simulation
+            self.__climb_ratio_th = climb_ratio_th
+            self.__detected_point_th = detected_point_th
 
             # Creazione client mqtt
             self.__mqttc = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
@@ -58,11 +58,11 @@ class Forward_collision_warning_mqtt:
 
             # Creazione del radar
             rad_bp = world.get_blueprint_library().find('sensor.other.radar')
-            rad_bp.set_attribute('horizontal_fov', str(125))
-            rad_bp.set_attribute('vertical_fov', str(115))
+            rad_bp.set_attribute('horizontal_fov', str(75))
+            rad_bp.set_attribute('vertical_fov', str(20))
             rad_bp.set_attribute('range', str(self.__radar_range))
             rad_bp.set_attribute('points_per_second', str(2000))
-            rad_location = carla.Location(x=2.25, z=(self.__vehicle_vertical_dimension / 2))
+            rad_location = carla.Location(x=2.25, z=0.9)
             rad_transform = carla.Transform(rad_location,carla.Rotation())
 
             # Aggancio al veicolo
@@ -73,6 +73,60 @@ class Forward_collision_warning_mqtt:
 
             # Settaggio del listener
             self.__radar.listen(lambda radar_data: self.__forward_collision_callback(radar_data))
+                
+        # Algoritmo
+        def __forward_collision_callback(self, radar_data):
+            asphalt_friction_coefficient = self.__get_asphalt_friction_coefficient()
+            asphalt_friction_deceleration = 9.81 * asphalt_friction_coefficient
+            control = self.__attached_vehicle.get_control()
+            if -self.__steer_tollerance < control.steer < self.__steer_tollerance:
+                radiant_steer_angle = control.steer * self.__max_radiant_steer_angle
+            else:
+                radiant_steer_angle = 0
+            detected_escape_list = []
+            detected_action_list = []
+            detected_warning_list = []
+            detected_idle_list = []
+            vehicle_velocity = self.__get_attached_vehicle_velocity()
+            if vehicle_velocity > self.__velocity_threshold:
+                for detection in radar_data:
+                    if detection.velocity < 0 and self.__check_horizontal_collision(detection.azimuth, detection.depth, radiant_steer_angle) and self.__check_vertical_collision(detection.altitude, detection.depth):
+                        projected_depth = self.__get_projected_depth(detection.azimuth, detection.altitude, detection.depth, radiant_steer_angle)
+                        max_depth = self.__get_max_depth(detection.azimuth, radiant_steer_angle)
+                        if projected_depth <= max_depth:
+                            projected_velocity = self.__get_projected_velocity(detection.azimuth, detection.altitude, detection.velocity, radiant_steer_angle) 
+                            breaking_distance = self.__get_breaking_distance(projected_velocity, asphalt_friction_deceleration)
+                            reacting_distance = max(0, projected_depth - breaking_distance)
+                            ttc = reacting_distance / projected_velocity
+                            if ttc < self.__min_ttc:  
+                                if vehicle_velocity < projected_velocity - self.__velocity_threshold:
+                                    detected_escape_list.append((detection, projected_depth))
+                                else:
+                                    detected_action_list.append((detection, projected_depth))
+                            elif ttc < self.__min_ttc + self.__average_reaction_time:
+                                detected_warning_list.append((detection, projected_depth))
+                            else:
+                                detected_idle_list.append((detection, projected_depth))
+                self.__analize_detection(detected_escape_list, radar_data, Fcw_state.ESCAPE, 0, 0, 1) 
+                self.__analize_detection(detected_action_list, radar_data, Fcw_state.ACTION, 1, 0, 0, self.__action_listener)
+                self.__analize_detection(detected_warning_list, radar_data, Fcw_state.WARNING, 1, 1, 0)
+                self.__analize_detection(detected_idle_list, radar_data, Fcw_state.IDLE, 0, 1, 0)  
+
+            else:
+                self.__min_fcw_state = Fcw_state.IDLE
+
+        # Support 
+        def __analize_detection(self, detected_point_list, radar_data, fwd_state, red, green, blue, listener = lambda: None):
+            if len(detected_point_list) > self.__detected_point_th:
+                if self.__check_climb(detected_point_list):
+                    red, green, blue = 1,1,1
+                elif fwd_state.value < self.__min_fcw_state.value:
+                    self.__min_fcw_state = fwd_state
+                    if fwd_state != Fcw_state.IDLE:
+                        self.__publish_message(fwd_state.name)
+                    listener()
+                for detection_plus_projected_distance in detected_point_list:
+                    self.__radar_visual_debug(detection_plus_projected_distance[0], radar_data, red, green, blue)
 
         # Debug visivo
         def __radar_visual_debug(self, detection, radar_data, red, green, blue):
@@ -95,67 +149,30 @@ class Forward_collision_warning_mqtt:
                     life_time=self.__visual_debug_pixel_life_time,
                     persistent_lines=False,
                     color=carla.Color(red, green, blue))
-                
-        # Algoritmo
-        def __forward_collision_callback(self, radar_data):
-            asphalt_friction_coefficient = self.__get_asphalt_friction_coefficient()
-            asphalt_friction_deceleration = 9.81 * asphalt_friction_coefficient
-            control = self.__attached_vehicle.get_control()
-            if -self.__steer_tollerance < control.steer < self.__steer_tollerance:
-                radiant_steer_angle = control.steer * self.__max_radiant_steer_angle
-            else:
-                radiant_steer_angle = 0
-            for detection in radar_data:
-                vehicle_velocity = self.__get_attached_vehicle_velocity()
-                if vehicle_velocity > self.__velocity_threshold_1:
-                    if detection.velocity < 0 and self.__check_horizontal_collision(detection.azimuth, detection.depth, radiant_steer_angle) and self.__check_vertical_collision(detection.altitude, detection.depth, vehicle_velocity):
-                        projected_depth = self.__get_projected_depth(detection.azimuth, detection.altitude, detection.depth, radiant_steer_angle)
-                        max_depth = self.__get_max_depth(detection.azimuth, radiant_steer_angle)
-                        if projected_depth <= max_depth:
-                            projected_velocity = self.__get_projected_velocity(detection.azimuth, detection.altitude, detection.velocity, radiant_steer_angle) 
-                            breaking_distance = self.__get_breaking_distance(projected_velocity, asphalt_friction_deceleration)
-                            reacting_distance = max(0, projected_depth - breaking_distance)
-                            ttc = reacting_distance / projected_velocity
-                            fcw_state = Fcw_state.IDLE
-                            if ttc < self.__min_ttc:  
-                                if vehicle_velocity < projected_velocity - self.__velocity_threshold_1:
-                                    fcw_state = Fcw_state.ESCAPE
-                                    self.__radar_visual_debug(detection, radar_data, 0,0,1)
-                                else:
-                                    fcw_state = Fcw_state.ACTION
-                                self.__radar_visual_debug(detection, radar_data, 1,0,0)
-                            elif ttc < self.__min_ttc + self.__average_reaction_time:
-                                fcw_state = Fcw_state.WARNING
-                                self.__radar_visual_debug(detection, radar_data, 1,1,0)
-                            else:
-                                self.__radar_visual_debug(detection, radar_data, 0,1,0)
-                            if fcw_state.value < self.__min_fcw_state.value:
-                                self.__min_fcw_state = fcw_state    
-                                self.__publish_message()
-                                if fcw_state == Fcw_state.ACTION:
-                                    self.__action_listener()
-                else:
-                    self.__min_fcw_state = Fcw_state.IDLE
 
-
-        # Controllo dei segno
+        # Controllori
         def __are_sign_equals(self, a, b):
             return (a > 0 and b > 0) or (a < 0 and b < 0)
-        
-        # Convertitori
-        def __get_radiant_low_velocity_pitch_simulation(self):
-            return math.radians(self.__low_velocity_pitch_simulation)
 
         def __check_horizontal_collision(self, azimuth, depth, radiant_steer_angle):
-            if self.__are_sign_equals(azimuth, radiant_steer_angle):
-                return True
-            return abs(depth * math.sin(azimuth)) < self.__vehicle_horizontal_dimension
+            return abs(depth * math.sin(azimuth - radiant_steer_angle)) < self.__vehicle_half_horizontal_dimension
 
-        def __check_vertical_collision(self, altitude, depth, vehicle_velocity):
-            if(vehicle_velocity > self.__velocity_threshold_2):
-                return abs(depth * math.sin(altitude)) < self.__vehicle_vertical_dimension
-            return abs(depth * math.sin(altitude + self.__get_radiant_low_velocity_pitch_simulation())) < self.__vehicle_vertical_dimension 
+        def __check_vertical_collision(self, altitude, depth):
+            return abs(depth * math.sin(altitude)) < self.__vehicle_half_vertical_dimension 
 
+        def __check_climb(self, detections_plus_projected_distance):
+            if len(detections_plus_projected_distance) > 2:
+                detections_plus_projected_distance.sort(key = lambda x: x[0].altitude)
+                climb_counter = 0
+                for i in range(2, len(detections_plus_projected_distance)):
+                    if detections_plus_projected_distance[i][1] > detections_plus_projected_distance[i-1][1] or detections_plus_projected_distance[i][1] > detections_plus_projected_distance[i-2][1]:
+                        climb_counter += 1
+                climb_ratio = climb_counter / (len(detections_plus_projected_distance) - 2)
+                if climb_ratio >= self.__climb_ratio_th:
+                    return True
+            return False
+        
+        # Convertitori
         def __get_projected_velocity(self, azimuth, altitude, velocity, radiant_steer_angle):
             return abs(math.cos(azimuth - radiant_steer_angle) * math.cos(altitude) * velocity)
 
@@ -176,16 +193,16 @@ class Forward_collision_warning_mqtt:
             if radiant_steer_angle == 0:
                 return self.__radar_range
             if self.__are_sign_equals(azimuth, radiant_steer_angle):
-                stering_range = abs(self.__vehicle_horizontal_dimension / math.tan(radiant_steer_angle))
+                stering_range = abs(self.__vehicle_half_horizontal_dimension / math.tan(radiant_steer_angle))
             else:
-                stering_range = abs((self.__vehicle_horizontal_dimension / 2) / math.tan(radiant_steer_angle))
+                stering_range = abs((self.__vehicle_half_horizontal_dimension / 2) / math.tan(radiant_steer_angle))
             return min(stering_range, self.__radar_range)
 
         # Invio messaggi Mqtt
-        def __publish_message(self):
-            status = self.__mqttc.publish(self.__mqtt_topic, self.__min_fcw_state.name)
+        def __publish_message(self, message):
+            status = self.__mqttc.publish(self.__mqtt_topic, message)
             if status[0] == 0:
-                print(f"Send `{self.__min_fcw_state.name}` to topic `{self.__mqtt_topic}`")
+                print(f"Send `{message}` to topic `{self.__mqtt_topic}`")
             else:
                 print(f"Failed to send message to topic {self.__mqtt_topic}")
 
