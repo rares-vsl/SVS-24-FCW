@@ -60,10 +60,10 @@ class Forward_collision_warning_mqtt:
 
             # Creazione del radar
             rad_bp = world.get_blueprint_library().find('sensor.other.radar')
-            rad_bp.set_attribute('horizontal_fov', str(75))
-            rad_bp.set_attribute('vertical_fov', str(20))
+            rad_bp.set_attribute('horizontal_fov', str(25))
+            rad_bp.set_attribute('vertical_fov', str(25))
             rad_bp.set_attribute('range', str(self.__radar_range))
-            rad_bp.set_attribute('points_per_second', str(2000))
+            rad_bp.set_attribute('points_per_second', str(3000))
             rad_location = carla.Location(x=2.25, z=0.9)
             rad_transform = carla.Transform(rad_location,carla.Rotation())
 
