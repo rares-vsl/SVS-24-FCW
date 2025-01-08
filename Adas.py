@@ -25,11 +25,12 @@ class Forward_collision_warning_mqtt:
                     vehicle_wheelbase = 2.8,
                     min_ttc = 0.5,
                     average_reaction_time = 2.5,
-                    velocity_threshold = 2.77,
+                    velocity_th = 2.77,
+                    escape_ratio_th = 0.5,
                     max_radiant_steer_angle = 1.22, # circa 70 gradi
                     steer_tollerance = 0.02,
                     radar_range = 250,
-                    climb_ratio_th = 0.7,
+                    climb_inconsistencies_th = 5,
                     max_radiant_slope = 0.2,
                     detected_point_th = 20   
         ):
@@ -48,11 +49,12 @@ class Forward_collision_warning_mqtt:
             self.__vehicle_wheelbase = vehicle_wheelbase
             self.__min_ttc = min_ttc
             self.__average_reaction_time = average_reaction_time
-            self.__velocity_threshold = velocity_threshold
+            self.__velocity_th = velocity_th
+            self.__escape_ratio_th = escape_ratio_th
             self.__max_radiant_steer_angle = max_radiant_steer_angle
             self.__steer_tollerance = steer_tollerance
             self.__radar_range = radar_range
-            self.__climb_ratio_th = climb_ratio_th
+            self.__climb_inconsistencies_th = climb_inconsistencies_th
             self.__detected_point_th = detected_point_th
             self.__max_radiant_slope = max_radiant_slope
 
@@ -94,7 +96,7 @@ class Forward_collision_warning_mqtt:
             detected_warning_list = []
             detected_idle_list = []
             vehicle_velocity = self.__get_attached_vehicle_velocity()
-            if vehicle_velocity > self.__velocity_threshold:
+            if vehicle_velocity > self.__velocity_th:
                 for detection in radar_data:
                     if detection.velocity < 0 and self.__check_horizontal_collision(detection.azimuth, detection.depth, radiant_steer_angle) and self.__check_vertical_collision(detection.altitude, detection.depth):
                         projected_depth = self.__get_projected_depth(detection.azimuth, detection.altitude, detection.depth, radiant_steer_angle)
@@ -105,7 +107,7 @@ class Forward_collision_warning_mqtt:
                             reacting_distance = max(0, projected_depth - breaking_distance)
                             ttc = reacting_distance / projected_velocity
                             if ttc < self.__min_ttc:  
-                                if vehicle_velocity < projected_velocity - self.__velocity_threshold:
+                                if abs(vehicle_velocity) < projected_velocity * self.__escape_ratio_th:
                                     detected_escape_list.append((detection, projected_depth))
                                 else:
                                     detected_action_list.append((detection, projected_depth))
@@ -167,16 +169,18 @@ class Forward_collision_warning_mqtt:
             return abs(depth * math.sin(altitude)) < self.__vehicle_half_vertical_dimension 
 
         def __check_climb(self, detections_plus_projected_distance):
-            if len(detections_plus_projected_distance) > 2:
-                detections_plus_projected_distance.sort(key = lambda x: x[0].altitude)
-                max_climb_inconsistencies_number = (len(detections_plus_projected_distance) - 2) * (1 - self.__climb_ratio_th)
+            if len(detections_plus_projected_distance) > self.__climb_inconsistencies_th + 2:
                 climb_inconsistencies_counter = 0
                 for i in range(2, len(detections_plus_projected_distance)):
                     if not self.__check_radiant_slope_validity(detections_plus_projected_distance[i], detections_plus_projected_distance[i-1]):
                         if not self.__check_radiant_slope_validity(detections_plus_projected_distance[i], detections_plus_projected_distance[i-2]):
                             climb_inconsistencies_counter +=1
-                            if climb_inconsistencies_counter > max_climb_inconsistencies_number:
+                            if climb_inconsistencies_counter >  self.__climb_inconsistencies_th:
                                 return False
+                        else:
+                           climb_inconsistencies_counter = 0
+                    else: 
+                       climb_inconsistencies_counter = 0  
                 return True
             return False
         
@@ -188,8 +192,12 @@ class Forward_collision_warning_mqtt:
             altitude_depth1 = abs(math.cos(point1.azimuth) * point1.depth)
             point2 = detection_plus_projected_distance2[0]
             altitude_depth2 = abs(math.cos(point2.azimuth) * point2.depth)
+            if altitude_depth2 > altitude_depth1:
+                return False 
             included_altitude_angle = abs(point1.altitude - point2.altitude)
             hypotenuse = math.sqrt(altitude_depth1**2 + altitude_depth2**2 - 2 * altitude_depth1 * altitude_depth2 * math.cos(included_altitude_angle))
+            if cathetus > hypotenuse:
+                return False
             return math.acos(cathetus / hypotenuse) < self.__max_radiant_slope
         
         # Convertitori
@@ -214,10 +222,10 @@ class Forward_collision_warning_mqtt:
                 return self.__radar_range
             radius = abs(self.__vehicle_wheelbase / math.tan(radiant_steer_angle))
             if self.__are_sign_equals(azimuth, radiant_steer_angle):
-                segment = radius - 2 * self.__vehicle_half_horizontal_dimension
+                cathetus = radius - 2 * self.__vehicle_half_horizontal_dimension
             else:
-                segment = radius - self.__vehicle_half_horizontal_dimension
-            stering_range = math.sqrt(radius**2 - segment**2)
+                cathetus = radius - self.__vehicle_half_horizontal_dimension
+            stering_range = math.sqrt(radius**2 - cathetus**2)
             return min(stering_range, self.__radar_range)
 
         # Invio messaggi Mqtt
