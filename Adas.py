@@ -22,6 +22,7 @@ class Forward_collision_warning_mqtt:
                     min_fcw_state = Fcw_state.IDLE,
                     vehicle_half_vertical_dimension = 0.75,
                     vehicle_half_horizontal_dimension = 0.9,
+                    vehicle_wheelbase = 2.8,
                     min_ttc = 0.5,
                     average_reaction_time = 2.5,
                     velocity_threshold = 2.77,
@@ -30,7 +31,7 @@ class Forward_collision_warning_mqtt:
                     radar_range = 250,
                     climb_ratio_th = 0.7,
                     max_radiant_slope = 0.2,
-                    detected_point_th = 15   
+                    detected_point_th = 20   
         ):
             
             # Inizializzazione parametri
@@ -44,6 +45,7 @@ class Forward_collision_warning_mqtt:
             self.__min_fcw_state = min_fcw_state
             self.__vehicle_half_vertical_dimension = vehicle_half_vertical_dimension
             self.__vehicle_half_horizontal_dimension = vehicle_half_horizontal_dimension
+            self.__vehicle_wheelbase = vehicle_wheelbase
             self.__min_ttc = min_ttc
             self.__average_reaction_time = average_reaction_time
             self.__velocity_threshold = velocity_threshold
@@ -63,7 +65,8 @@ class Forward_collision_warning_mqtt:
             rad_bp.set_attribute('horizontal_fov', str(25))
             rad_bp.set_attribute('vertical_fov', str(25))
             rad_bp.set_attribute('range', str(self.__radar_range))
-            rad_bp.set_attribute('points_per_second', str(3000))
+            rad_bp.set_attribute('points_per_second', str(50000))
+            rad_bp.set_attribute('sensor_tick', str(0.01))
             rad_location = carla.Location(x=2.25, z=0.9)
             rad_rotation = carla.Rotation()
             rad_transform = carla.Transform(rad_location,rad_rotation)
@@ -94,10 +97,10 @@ class Forward_collision_warning_mqtt:
             if vehicle_velocity > self.__velocity_threshold:
                 for detection in radar_data:
                     if detection.velocity < 0 and self.__check_horizontal_collision(detection.azimuth, detection.depth, radiant_steer_angle) and self.__check_vertical_collision(detection.altitude, detection.depth):
-                        projected_depth = self.__get_projected_depth(detection.azimuth, detection.altitude, detection.depth)
+                        projected_depth = self.__get_projected_depth(detection.azimuth, detection.altitude, detection.depth, radiant_steer_angle)
                         max_depth = self.__get_max_depth(detection.azimuth, radiant_steer_angle)
                         if projected_depth <= max_depth:
-                            projected_velocity = self.__get_projected_velocity(detection.azimuth, detection.altitude, detection.velocity) 
+                            projected_velocity = self.__get_projected_velocity(detection.azimuth, detection.altitude, detection.velocity, radiant_steer_angle) 
                             breaking_distance = self.__get_breaking_distance(projected_velocity, asphalt_friction_deceleration)
                             reacting_distance = max(0, projected_depth - breaking_distance)
                             ttc = reacting_distance / projected_velocity
@@ -190,11 +193,11 @@ class Forward_collision_warning_mqtt:
             return math.acos(cathetus / hypotenuse) < self.__max_radiant_slope
         
         # Convertitori
-        def __get_projected_velocity(self, azimuth, altitude, velocity):
-            return abs(math.cos(azimuth) * math.cos(altitude) * velocity)
+        def __get_projected_velocity(self, azimuth, altitude, velocity, radiant_steer_angle):
+            return abs(math.cos(azimuth - radiant_steer_angle) * math.cos(altitude) * velocity)
 
-        def __get_projected_depth(self, azimuth, altitude, depth):
-            return abs(math.cos(azimuth) * math.cos(altitude) * depth)
+        def __get_projected_depth(self, azimuth, altitude, depth, radiant_steer_angle):
+            return abs(math.cos(azimuth - radiant_steer_angle) * math.cos(altitude) * depth)
 
         def __get_breaking_distance(self, projected_velocity, asphalt_friction_deceleration):
             return (1/2) * (projected_velocity**2) / asphalt_friction_deceleration
@@ -209,10 +212,12 @@ class Forward_collision_warning_mqtt:
         def __get_max_depth(self, azimuth, radiant_steer_angle):
             if radiant_steer_angle == 0:
                 return self.__radar_range
+            radius = abs(self.__vehicle_wheelbase / math.tan(radiant_steer_angle))
             if self.__are_sign_equals(azimuth, radiant_steer_angle):
-                stering_range = abs(self.__vehicle_half_horizontal_dimension * math.tan(math.pi / 2 - radiant_steer_angle))
+                segment = radius - 2 * self.__vehicle_half_horizontal_dimension
             else:
-                stering_range = abs(self.__vehicle_half_horizontal_dimension * math.tan(math.pi / 2 - radiant_steer_angle) * 2)
+                segment = radius - self.__vehicle_half_horizontal_dimension
+            stering_range = math.sqrt(radius**2 - segment**2)
             return min(stering_range, self.__radar_range)
 
         # Invio messaggi Mqtt
