@@ -30,7 +30,7 @@ class Forward_collision_warning_mqtt:
                     radar_range = 250,
                     climb_ratio_th = 0.7,
                     max_radiant_slope = 0.2,
-                    detected_point_th = 20   
+                    detected_point_th = 15   
         ):
             
             # Inizializzazione parametri
@@ -65,7 +65,8 @@ class Forward_collision_warning_mqtt:
             rad_bp.set_attribute('range', str(self.__radar_range))
             rad_bp.set_attribute('points_per_second', str(3000))
             rad_location = carla.Location(x=2.25, z=0.9)
-            rad_transform = carla.Transform(rad_location,carla.Rotation())
+            rad_rotation = carla.Rotation()
+            rad_transform = carla.Transform(rad_location,rad_rotation)
 
             # Aggancio al veicolo
             self.__radar = world.spawn_actor(rad_bp,rad_transform,attach_to=self.__attached_vehicle, attachment_type=carla.AttachmentType.Rigid)
