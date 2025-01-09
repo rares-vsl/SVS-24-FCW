@@ -1,4 +1,4 @@
-import carla, math, paho.mqtt.client as mqtt
+import carla, math, random, paho.mqtt.client as mqtt
 from enum import Enum
 
 # Enum state del sistema adas
@@ -9,13 +9,14 @@ class Fcw_state(Enum):
     ESCAPE = 1
 
 class Forward_collision_warning_mqtt:
-        def __init__(self,
+            def __init__(self,
                     world,
                     attached_vehicle,
                     get_asphalt_friction_coefficient,
                     action_listener, 
                     debug = True,
                     visual_debug_pixel_life_time = 0.25,  
+                    visual_debug_max_point_number = 10, 
                     mqtt_broker = 'broker.emqx.io',
                     mqtt_port = 1883,
                     mqtt_topic = "carla/fcw_state",
@@ -29,10 +30,11 @@ class Forward_collision_warning_mqtt:
                     escape_ratio_th = 0.5,
                     max_radiant_steer_angle = 1.22, # circa 70 gradi
                     steer_tollerance = 0.02,
-                    radar_range = 250,
-                    climb_inconsistencies_th = 5,
-                    max_radiant_slope = 0.2,
-                    detected_point_th = 20   
+                    radar_range = 285,
+                    radar_height = 0.9,
+                    climb_inconsistencies_height_th = 0.2,
+                    max_slope = 0.2,
+                    detected_point_th = 25   
         ):
             
             # Inizializzazione parametri
@@ -42,6 +44,7 @@ class Forward_collision_warning_mqtt:
             self.__action_listener = action_listener
             self.__debug = debug
             self.__visual_debug_pixel_life_time = visual_debug_pixel_life_time
+            self.__visual_debug_max_point_number = visual_debug_max_point_number
             self.__mqtt_topic = mqtt_topic
             self.__min_fcw_state = min_fcw_state
             self.__vehicle_half_vertical_dimension = vehicle_half_vertical_dimension
@@ -52,11 +55,12 @@ class Forward_collision_warning_mqtt:
             self.__velocity_th = velocity_th
             self.__escape_ratio_th = escape_ratio_th
             self.__max_radiant_steer_angle = max_radiant_steer_angle
-            self.__steer_tollerance = steer_tollerance
             self.__radar_range = radar_range
-            self.__climb_inconsistencies_th = climb_inconsistencies_th
+            self.__radar_height = radar_height
+            self.__steer_tollerance = steer_tollerance
+            self.__climb_inconsistencies_height_th = climb_inconsistencies_height_th
             self.__detected_point_th = detected_point_th
-            self.__max_radiant_slope = max_radiant_slope
+            self.__max_slope = max_slope
 
             # Creazione client mqtt
             self.__mqttc = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
@@ -68,8 +72,8 @@ class Forward_collision_warning_mqtt:
             rad_bp.set_attribute('vertical_fov', str(25))
             rad_bp.set_attribute('range', str(self.__radar_range))
             rad_bp.set_attribute('points_per_second', str(50000))
-            rad_bp.set_attribute('sensor_tick', str(0.01))
-            rad_location = carla.Location(x=2.25, z=0.9)
+            rad_bp.set_attribute('sensor_tick', str(0.05))
+            rad_location = carla.Location(x=2.25, z=self.__radar_height)
             rad_rotation = carla.Rotation()
             rad_transform = carla.Transform(rad_location,rad_rotation)
 
@@ -110,8 +114,11 @@ class Forward_collision_warning_mqtt:
                                 if abs(vehicle_velocity) < projected_velocity * self.__escape_ratio_th:
                                     detected_escape_list.append((detection, projected_depth))
                                 else:
-                                    detected_action_list.append((detection, projected_depth))
-                            elif ttc < self.__min_ttc + self.__average_reaction_time:
+                                    if radiant_steer_angle == 0:
+                                        detected_action_list.append((detection, projected_depth))
+                                    else: 
+                                        detected_warning_list.append((detection, projected_depth)) 
+                            elif ttc < self.__min_ttc + self.__average_reaction_time and radiant_steer_angle == 0:
                                 detected_warning_list.append((detection, projected_depth))
                             else:
                                 detected_idle_list.append((detection, projected_depth))
@@ -133,6 +140,8 @@ class Forward_collision_warning_mqtt:
                     if fwd_state != Fcw_state.IDLE:
                         self.__publish_message(fwd_state.name)
                     listener()
+                number_of_point_to_display = min(len(detected_point_list), self.__visual_debug_max_point_number)
+                sampled_detected_point_list = random.sample(detected_point_list, number_of_point_to_display)
                 for detection_plus_projected_distance in detected_point_list:
                     self.__radar_visual_debug(detection_plus_projected_distance[0], radar_data, red, green, blue)
 
@@ -169,36 +178,22 @@ class Forward_collision_warning_mqtt:
             return abs(depth * math.sin(altitude)) < self.__vehicle_half_vertical_dimension 
 
         def __check_climb(self, detections_plus_projected_distance):
-            if len(detections_plus_projected_distance) > self.__climb_inconsistencies_th + 2:
-                climb_inconsistencies_counter = 0
+            if len(detections_plus_projected_distance) > 2:
+                climb_inconsistencies_height_counter = 0
                 for i in range(2, len(detections_plus_projected_distance)):
-                    if not self.__check_radiant_slope_validity(detections_plus_projected_distance[i], detections_plus_projected_distance[i-1]):
-                        if not self.__check_radiant_slope_validity(detections_plus_projected_distance[i], detections_plus_projected_distance[i-2]):
-                            climb_inconsistencies_counter +=1
-                            if climb_inconsistencies_counter >  self.__climb_inconsistencies_th:
+                    climb_inconsistencies_height_1 = self.__get_climb_inconsistencies_height(detections_plus_projected_distance[i], detections_plus_projected_distance[i-1])
+                    if climb_inconsistencies_height_1 != 0:
+                        climb_inconsistencies_height_2 = self.__get_climb_inconsistencies_height(detections_plus_projected_distance[i], detections_plus_projected_distance[i-2])
+                        if climb_inconsistencies_height_2 != 0:
+                            climb_inconsistencies_height_counter += min(climb_inconsistencies_height_1, climb_inconsistencies_height_2)
+                            if climb_inconsistencies_height_counter > self.__climb_inconsistencies_height_th:
                                 return False
-                        else:
-                           climb_inconsistencies_counter = 0
-                    else: 
-                       climb_inconsistencies_counter = 0  
+                        else: 
+                            climb_inconsistencies_height_counter = 0
+                    else:
+                        climb_inconsistencies_height_counter = 0  
                 return True
             return False
-        
-        def __check_radiant_slope_validity(self, detection_plus_projected_distance1, detection_plus_projected_distance2):
-            cathetus = detection_plus_projected_distance1[1] - detection_plus_projected_distance2[1]
-            if cathetus < 0:
-                return False  
-            point1 = detection_plus_projected_distance1[0]
-            altitude_depth1 = abs(math.cos(point1.azimuth) * point1.depth)
-            point2 = detection_plus_projected_distance2[0]
-            altitude_depth2 = abs(math.cos(point2.azimuth) * point2.depth)
-            if altitude_depth2 > altitude_depth1:
-                return False 
-            included_altitude_angle = abs(point1.altitude - point2.altitude)
-            hypotenuse = math.sqrt(altitude_depth1**2 + altitude_depth2**2 - 2 * altitude_depth1 * altitude_depth2 * math.cos(included_altitude_angle))
-            if cathetus > hypotenuse:
-                return False
-            return math.acos(cathetus / hypotenuse) < self.__max_radiant_slope
         
         # Convertitori
         def __get_projected_velocity(self, azimuth, altitude, velocity, radiant_steer_angle):
@@ -228,6 +223,18 @@ class Forward_collision_warning_mqtt:
             stering_range = math.sqrt(radius**2 - cathetus**2)
             return min(stering_range, self.__radar_range)
 
+        def __get_climb_inconsistencies_height(self, detection_plus_projected_distance1, detection_plus_projected_distance2):
+            detection1 = detection_plus_projected_distance1[0]
+            detection2 = detection_plus_projected_distance2[0]
+            height1 = detection1.depth * math.sin(detection1.altitude) + self.__radar_height
+            height2 = detection2.depth * math.sin(detection2.altitude) + self.__radar_height
+            vertical_difference = height1 - height2
+            horizontal_difference = detection_plus_projected_distance1[1] - detection_plus_projected_distance2[1]
+            slope = vertical_difference / horizontal_difference
+            if horizontal_difference > 0 and slope < self.__max_slope:
+                return 0
+            return vertical_difference
+
         # Invio messaggi Mqtt
         def __publish_message(self, message):
             status = self.__mqttc.publish(self.__mqtt_topic, message)
@@ -241,4 +248,3 @@ class Forward_collision_warning_mqtt:
             self.__mqttc.loop_stop()
             self.__mqttc.disconnect()
             self.__radar.destroy()
-            
