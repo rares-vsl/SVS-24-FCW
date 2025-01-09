@@ -9,7 +9,7 @@ class Fcw_state(Enum):
     ESCAPE = 1
 
 class Forward_collision_warning_mqtt:
-            def __init__(self,
+        def __init__(self,
                     world,
                     attached_vehicle,
                     get_asphalt_friction_coefficient,
@@ -92,9 +92,9 @@ class Forward_collision_warning_mqtt:
             asphalt_friction_deceleration = 9.81 * asphalt_friction_coefficient
             control = self.__attached_vehicle.get_control()
             if -self.__steer_tollerance < control.steer < self.__steer_tollerance:
-                radiant_steer_angle = control.steer * self.__max_radiant_steer_angle
+                radiant_steer_angle = 0 
             else:
-                radiant_steer_angle = 0
+               radiant_steer_angle = control.steer * self.__max_radiant_steer_angle  
             detected_escape_list = []
             detected_action_list = []
             detected_warning_list = []
@@ -114,10 +114,7 @@ class Forward_collision_warning_mqtt:
                                 if abs(vehicle_velocity) < projected_velocity * self.__escape_ratio_th:
                                     detected_escape_list.append((detection, projected_depth))
                                 else:
-                                    if radiant_steer_angle == 0:
-                                        detected_action_list.append((detection, projected_depth))
-                                    else: 
-                                        detected_warning_list.append((detection, projected_depth)) 
+                                    detected_action_list.append((detection, projected_depth)) 
                             elif ttc < self.__min_ttc + self.__average_reaction_time and radiant_steer_angle == 0:
                                 detected_warning_list.append((detection, projected_depth))
                             else:
@@ -142,7 +139,7 @@ class Forward_collision_warning_mqtt:
                     listener()
                 number_of_point_to_display = min(len(detected_point_list), self.__visual_debug_max_point_number)
                 sampled_detected_point_list = random.sample(detected_point_list, number_of_point_to_display)
-                for detection_plus_projected_distance in detected_point_list:
+                for detection_plus_projected_distance in sampled_detected_point_list:
                     self.__radar_visual_debug(detection_plus_projected_distance[0], radar_data, red, green, blue)
 
         # Debug visivo
