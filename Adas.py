@@ -103,10 +103,10 @@ class Forward_collision_warning_mqtt:
             if vehicle_velocity > self.__velocity_th:
                 for detection in radar_data:
                     if detection.velocity < 0 and self.__check_horizontal_collision(detection.azimuth, detection.depth, radiant_steer_angle) and self.__check_vertical_collision(detection.altitude, detection.depth):
-                        projected_depth = self.__get_projected_depth(detection.azimuth, detection.altitude, detection.depth, radiant_steer_angle)
+                        projected_depth = self.__get_projected_depth(detection.azimuth, detection.altitude, detection.depth)
                         max_depth = self.__get_max_depth(detection.azimuth, radiant_steer_angle)
                         if projected_depth <= max_depth:
-                            projected_velocity = self.__get_projected_velocity(detection.azimuth, detection.altitude, detection.velocity, radiant_steer_angle) 
+                            projected_velocity = self.__get_projected_velocity(detection.azimuth, detection.altitude, detection.velocity) 
                             breaking_distance = self.__get_breaking_distance(projected_velocity, asphalt_friction_deceleration)
                             reacting_distance = max(0, projected_depth - breaking_distance)
                             ttc = reacting_distance / projected_velocity
@@ -193,11 +193,11 @@ class Forward_collision_warning_mqtt:
             return False
         
         # Convertitori
-        def __get_projected_velocity(self, azimuth, altitude, velocity, radiant_steer_angle):
-            return abs(math.cos(azimuth - radiant_steer_angle) * math.cos(altitude) * velocity)
+        def __get_projected_velocity(self, azimuth, altitude, velocity):
+            return abs(math.cos(azimuth) * math.cos(altitude) * velocity)
 
-        def __get_projected_depth(self, azimuth, altitude, depth, radiant_steer_angle):
-            return abs(math.cos(azimuth - radiant_steer_angle) * math.cos(altitude) * depth)
+        def __get_projected_depth(self, azimuth, altitude, depth):
+            return abs(math.cos(azimuth) * math.cos(altitude) * depth)
 
         def __get_breaking_distance(self, projected_velocity, asphalt_friction_deceleration):
             return (1/2) * (projected_velocity**2) / asphalt_friction_deceleration
