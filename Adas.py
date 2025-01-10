@@ -109,7 +109,7 @@ class Forward_collision_warning_mqtt:
                         reacting_distance = max(0, projected_depth - breaking_distance)
                         ttc = reacting_distance / projected_velocity
                         if ttc < self.__min_ttc:  
-                            if attached_vehicle_stimated_velocity < projected_velocity * self.__escape_ratio_th and projected_velocity > self.__velocity_th:
+                            if attached_vehicle_stimated_velocity < projected_velocity * self.__escape_ratio_th:
                                 detected_escape_list.append((detection, projected_depth))
                             else:
                                 detected_action_list.append((detection, projected_depth)) 
