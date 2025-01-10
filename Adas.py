@@ -84,41 +84,39 @@ class Forward_collision_warning_mqtt:
             self.__mqttc.loop_start()
 
             # Settaggio del listener
-            self.__radar.listen(lambda radar_data: self.__forward_collision_callback(radar_data))
+            self.__radar.listen(lambda radar_data: self.__forward_collision_callback(radar_data, self.__attached_vehicle.get_control()))
                 
         # Algoritmo
-        def __forward_collision_callback(self, radar_data):
+        def __forward_collision_callback(self, radar_data, attached_vehicle_control):
             asphalt_friction_coefficient = self.__get_asphalt_friction_coefficient()
             asphalt_friction_deceleration = 9.81 * asphalt_friction_coefficient
-            control = self.__attached_vehicle.get_control()
-            if -self.__steer_tollerance < control.steer < self.__steer_tollerance:
+            if -self.__steer_tollerance < attached_vehicle_control.steer < self.__steer_tollerance:
                 radiant_steer_angle = 0 
             else:
-               radiant_steer_angle = control.steer * self.__max_radiant_steer_angle  
+               radiant_steer_angle = attached_vehicle_control.steer * self.__max_radiant_steer_angle
+            attached_vehicle_velocity, filtered_radar_data = self.__get_attached_vehicle_velocity_and_filtered_radar_data(radar_data, radiant_steer_angle)
             detected_escape_list = []
             detected_action_list = []
             detected_warning_list = []
             detected_idle_list = []
-            vehicle_velocity = self.__get_attached_vehicle_velocity()
-            if vehicle_velocity > self.__velocity_th:
-                for detection in radar_data:
-                    if detection.velocity < 0 and self.__check_horizontal_collision(detection.azimuth, detection.depth, radiant_steer_angle) and self.__check_vertical_collision(detection.altitude, detection.depth):
-                        projected_depth = self.__get_projected_depth(detection.azimuth, detection.altitude, detection.depth)
-                        max_depth = self.__get_max_depth(detection.azimuth, radiant_steer_angle)
-                        if projected_depth <= max_depth:
-                            projected_velocity = self.__get_projected_velocity(detection.azimuth, detection.altitude, detection.velocity) 
-                            breaking_distance = self.__get_breaking_distance(projected_velocity, asphalt_friction_deceleration)
-                            reacting_distance = max(0, projected_depth - breaking_distance)
-                            ttc = reacting_distance / projected_velocity
-                            if ttc < self.__min_ttc:  
-                                if abs(vehicle_velocity) < projected_velocity * self.__escape_ratio_th:
-                                    detected_escape_list.append((detection, projected_depth))
-                                else:
-                                    detected_action_list.append((detection, projected_depth)) 
-                            elif ttc < self.__min_ttc + self.__average_reaction_time and radiant_steer_angle == 0:
-                                detected_warning_list.append((detection, projected_depth))
+            if attached_vehicle_velocity > self.__velocity_th:
+                for detection in filtered_radar_data:
+                    projected_depth = self.__get_projected_depth(detection.azimuth, detection.altitude, detection.depth, radiant_steer_angle)
+                    max_depth = self.__get_max_depth(detection.azimuth, radiant_steer_angle)
+                    if projected_depth <= max_depth:
+                        projected_velocity = self.__get_projected_velocity(detection.azimuth, detection.altitude, detection.velocity, radiant_steer_angle) 
+                        breaking_distance = self.__get_breaking_distance(projected_velocity, asphalt_friction_deceleration)
+                        reacting_distance = max(0, projected_depth - breaking_distance)
+                        ttc = reacting_distance / projected_velocity
+                        if ttc < self.__min_ttc:  
+                            if attached_vehicle_velocity < projected_velocity * self.__escape_ratio_th and projected_velocity > self.__velocity_th:
+                                detected_escape_list.append((detection, projected_depth))
                             else:
-                                detected_idle_list.append((detection, projected_depth))
+                                detected_action_list.append((detection, projected_depth)) 
+                        elif ttc < self.__min_ttc + self.__average_reaction_time and radiant_steer_angle == 0:
+                            detected_warning_list.append((detection, projected_depth))
+                        else:
+                            detected_idle_list.append((detection, projected_depth))
                 self.__analize_detection(detected_escape_list, radar_data, Fcw_state.ESCAPE, 0, 0, 1) 
                 self.__analize_detection(detected_action_list, radar_data, Fcw_state.ACTION, 1, 0, 0, self.__action_listener)
                 self.__analize_detection(detected_warning_list, radar_data, Fcw_state.WARNING, 1, 1, 0)
@@ -193,21 +191,24 @@ class Forward_collision_warning_mqtt:
             return False
         
         # Convertitori
-        def __get_projected_velocity(self, azimuth, altitude, velocity):
-            return abs(math.cos(azimuth) * math.cos(altitude) * velocity)
+        def __get_projected_velocity(self, azimuth, altitude, velocity, radiant_steer_angle):
+            return abs(math.cos(azimuth - radiant_steer_angle) * math.cos(altitude) * velocity)
 
-        def __get_projected_depth(self, azimuth, altitude, depth):
-            return abs(math.cos(azimuth) * math.cos(altitude) * depth)
+        def __get_projected_depth(self, azimuth, altitude, depth, radiant_steer_angle):
+            return abs(math.cos(azimuth - radiant_steer_angle) * math.cos(altitude) * depth)
 
         def __get_breaking_distance(self, projected_velocity, asphalt_friction_deceleration):
             return (1/2) * (projected_velocity**2) / asphalt_friction_deceleration
 
-        def __get_attached_vehicle_velocity(self):
-            velocity_vector = self.__attached_vehicle.get_velocity()
-            velocity = (velocity_vector.x**2 + velocity_vector.y**2 + velocity_vector.z**2)**0.5
-            if self.__attached_vehicle.get_control().reverse:
-                velocity = -velocity
-            return velocity
+        def __get_attached_vehicle_velocity_and_filtered_radar_data(self, radar_data, radiant_steer_angle):
+            velocity_sum = 0
+            filtered_radar_data = []
+            for detection in radar_data:
+                velocity_sum += self.__get_projected_velocity(detection.azimuth, detection.altitude, detection.velocity, radiant_steer_angle)
+                if detection.velocity < 0 and self.__check_horizontal_collision(detection.azimuth, detection.depth, radiant_steer_angle) and self.__check_vertical_collision(detection.altitude, detection.depth):
+                    filtered_radar_data.append(detection)
+            attached_vehicle_velocity = velocity_sum / len(radar_data)
+            return attached_vehicle_velocity, filtered_radar_data
 
         def __get_max_depth(self, azimuth, radiant_steer_angle):
             if radiant_steer_angle == 0:
