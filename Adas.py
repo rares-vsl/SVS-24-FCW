@@ -84,17 +84,17 @@ class Forward_collision_warning_mqtt:
             self.__mqttc.loop_start()
 
             # Settaggio del listener
-            self.__radar.listen(lambda radar_data: self.__forward_collision_callback(radar_data, self.__attached_vehicle.get_control()))
+            self.__radar.listen(lambda radar_data: self.__forward_collision_callback(radar_data, self.__attached_vehicle.get_control(), self.__get_attached_vehicle_velocity()))
                 
         # Algoritmo
-        def __forward_collision_callback(self, radar_data, attached_vehicle_control):
+        def __forward_collision_callback(self, radar_data, attached_vehicle_control, attached_vehicle_velocity):
             asphalt_friction_coefficient = self.__get_asphalt_friction_coefficient()
             asphalt_friction_deceleration = 9.81 * asphalt_friction_coefficient
             if -self.__steer_tollerance < attached_vehicle_control.steer < self.__steer_tollerance:
                 radiant_steer_angle = 0 
             else:
                radiant_steer_angle = attached_vehicle_control.steer * self.__max_radiant_steer_angle
-            attached_vehicle_velocity, filtered_radar_data = self.__get_attached_vehicle_velocity_and_filtered_radar_data(radar_data, radiant_steer_angle)
+            attached_vehicle_stimated_velocity, filtered_radar_data = self.__get_attached_vehicle_stimated_velocity_and_filtered_radar_data(radar_data, radiant_steer_angle)
             detected_escape_list = []
             detected_action_list = []
             detected_warning_list = []
@@ -109,7 +109,7 @@ class Forward_collision_warning_mqtt:
                         reacting_distance = max(0, projected_depth - breaking_distance)
                         ttc = reacting_distance / projected_velocity
                         if ttc < self.__min_ttc:  
-                            if attached_vehicle_velocity < projected_velocity * self.__escape_ratio_th and projected_velocity > self.__velocity_th:
+                            if attached_vehicle_stimated_velocity < projected_velocity * self.__escape_ratio_th and projected_velocity > self.__velocity_th:
                                 detected_escape_list.append((detection, projected_depth))
                             else:
                                 detected_action_list.append((detection, projected_depth)) 
@@ -199,16 +199,24 @@ class Forward_collision_warning_mqtt:
 
         def __get_breaking_distance(self, projected_velocity, asphalt_friction_deceleration):
             return (1/2) * (projected_velocity**2) / asphalt_friction_deceleration
+        
 
-        def __get_attached_vehicle_velocity_and_filtered_radar_data(self, radar_data, radiant_steer_angle):
+        def __get_attached_vehicle_velocity(self):
+            velocity_vector = self.__attached_vehicle.get_velocity()
+            velocity = (velocity_vector.x**2 + velocity_vector.y**2 + velocity_vector.z**2)**0.5
+            if self.__attached_vehicle.get_control().reverse:
+                velocity = -velocity
+            return velocity
+
+        def __get_attached_vehicle_stimated_velocity_and_filtered_radar_data(self, radar_data, radiant_steer_angle):
             velocity_sum = 0
             filtered_radar_data = []
             for detection in radar_data:
                 velocity_sum += self.__get_projected_velocity(detection.azimuth, detection.altitude, detection.velocity, radiant_steer_angle)
                 if detection.velocity < 0 and self.__check_horizontal_collision(detection.azimuth, detection.depth, radiant_steer_angle) and self.__check_vertical_collision(detection.altitude, detection.depth):
                     filtered_radar_data.append(detection)
-            attached_vehicle_velocity = velocity_sum / len(radar_data)
-            return attached_vehicle_velocity, filtered_radar_data
+            attached_vehicle_stimated_velocity = velocity_sum / len(radar_data)
+            return attached_vehicle_stimated_velocity, filtered_radar_data
 
         def __get_max_depth(self, azimuth, radiant_steer_angle):
             if radiant_steer_angle == 0:
