@@ -34,7 +34,7 @@ class Forward_collision_warning_mqtt:
                     radar_height = 0.9,
                     climb_inconsistencies_height_th = 0.2,
                     max_slope = 0.2,
-                    detected_point_th = 25   
+                    detected_point_th = 10   
         ):
             
             # Inizializzazione parametri
@@ -72,7 +72,6 @@ class Forward_collision_warning_mqtt:
             rad_bp.set_attribute('vertical_fov', str(25))
             rad_bp.set_attribute('range', str(self.__radar_range))
             rad_bp.set_attribute('points_per_second', str(50000))
-            rad_bp.set_attribute('sensor_tick', str(0.05))
             rad_location = carla.Location(x=2.25, z=self.__radar_height)
             rad_rotation = carla.Rotation()
             rad_transform = carla.Transform(rad_location,rad_rotation)
@@ -106,14 +105,14 @@ class Forward_collision_warning_mqtt:
                     if projected_depth <= max_depth:
                         projected_velocity = self.__get_projected_velocity(detection.azimuth, detection.altitude, detection.velocity, radiant_steer_angle) 
                         breaking_distance = self.__get_breaking_distance(projected_velocity, asphalt_friction_deceleration)
-                        reacting_distance = max(0, projected_depth - breaking_distance)
+                        reacting_distance = projected_depth - breaking_distance
                         ttc = reacting_distance / projected_velocity
                         if ttc < self.__min_ttc:  
                             if attached_vehicle_stimated_velocity < projected_velocity * self.__escape_ratio_th:
                                 detected_escape_list.append((detection, projected_depth))
                             else:
                                 detected_action_list.append((detection, projected_depth)) 
-                        elif ttc < self.__min_ttc + self.__average_reaction_time and radiant_steer_angle == 0:
+                        elif ttc < self.__min_ttc + self.__average_reaction_time:
                             detected_warning_list.append((detection, projected_depth))
                         else:
                             detected_idle_list.append((detection, projected_depth))
