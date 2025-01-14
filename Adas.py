@@ -34,7 +34,7 @@ class Forward_collision_warning_mqtt:
                     radar_height = 0.9,
                     climb_inconsistencies_height_th = 0.2,
                     max_slope = 0.2,
-                    detected_point_th = 10   
+                    detected_point_th = 25   
         ):
             
             # Inizializzazione parametri
