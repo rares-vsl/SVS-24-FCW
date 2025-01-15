@@ -587,8 +587,8 @@ class DualControl(object):
 
         if not self._autopilot_enabled:
             if isinstance(self._control, carla.VehicleControl):
-                self._parse_vehicle_keys(pygame.key.get_pressed(), clock.get_time())
-                self._parse_vehicle_wheel()
+                self._parse_vehicle_keys(pygame.key.get_pressed(), clock.get_time(), stop_flag)
+                self._parse_vehicle_wheel(stop_flag)
                 self._control.reverse = self._control.gear < 0
             elif isinstance(self._control, carla.WalkerControl):
                 self._parse_walker_keys(pygame.key.get_pressed(), clock.get_time())
@@ -596,7 +596,7 @@ class DualControl(object):
 
 
 
-    def _parse_vehicle_wheel(self):
+    def _parse_vehicle_wheel(self, stop_flag):
         if stop_flag:
             print("stop")
             self._control.throttle = 0
@@ -783,7 +783,7 @@ def main():
     argparser.add_argument(
         '-p', '--port',
         metavar='P',
-        default=2000,
+        default=2025,
         type=int,
         help='TCP port to listen to (default: 2000)')
     argparser.add_argument(
