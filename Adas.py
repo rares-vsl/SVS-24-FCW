@@ -121,6 +121,9 @@ class Forward_collision_warning_mqtt:
                 self.__analize_detection(detected_warning_list, radar_data, Fcw_state.WARNING, 1, 1, 0)
                 self.__analize_detection(detected_idle_list, radar_data, Fcw_state.IDLE, 0, 1, 0)  
 
+                if not detected_escape_list and not detected_action_list and not detected_warning_list:
+                    self.__min_fcw_state = Fcw_state.IDLE
+
             else:
                 self.__min_fcw_state = Fcw_state.IDLE
 
