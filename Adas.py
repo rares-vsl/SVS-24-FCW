@@ -9,6 +9,9 @@ class Fcw_state(Enum):
     ESCAPE = 1
 
 class Forward_collision_warning_mqtt:
+        
+        __idle_counter = 0 
+
         def __init__(self,
                     world,
                     attached_vehicle,
@@ -34,7 +37,8 @@ class Forward_collision_warning_mqtt:
                     radar_height = 0.9,
                     climb_inconsistencies_height_th = 0.2,
                     max_slope = 0.2,
-                    detected_point_th = 25   
+                    detected_point_th = 25,   
+                    idle_counter_th = 30
         ):
             
             # Inizializzazione parametri
@@ -61,6 +65,7 @@ class Forward_collision_warning_mqtt:
             self.__climb_inconsistencies_height_th = climb_inconsistencies_height_th
             self.__detected_point_th = detected_point_th
             self.__max_slope = max_slope
+            self.__idle_counter_th = idle_counter_th
 
             # Creazione client mqtt
             self.__mqttc = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
@@ -72,6 +77,7 @@ class Forward_collision_warning_mqtt:
             rad_bp.set_attribute('vertical_fov', str(25))
             rad_bp.set_attribute('range', str(self.__radar_range))
             rad_bp.set_attribute('points_per_second', str(50000))
+            rad_bp.set_attribute('sensor_tick', str(0.05))
             rad_location = carla.Location(x=2.25, z=self.__radar_height)
             rad_rotation = carla.Rotation()
             rad_transform = carla.Transform(rad_location,rad_rotation)
@@ -99,16 +105,18 @@ class Forward_collision_warning_mqtt:
             detected_warning_list = []
             detected_idle_list = []
             if attached_vehicle_velocity > self.__velocity_th:
+                coefficient = attached_vehicle_velocity / attached_vehicle_stimated_velocity
                 for detection in filtered_radar_data:
                     projected_depth = self.__get_projected_depth(detection.azimuth, detection.altitude, detection.depth, radiant_steer_angle)
                     max_depth = self.__get_max_depth(detection.azimuth, radiant_steer_angle)
                     if projected_depth <= max_depth:
-                        projected_velocity = self.__get_projected_velocity(detection.azimuth, detection.altitude, detection.velocity, radiant_steer_angle) 
+                        ponderated_velocity = coefficient * detection.velocity
+                        projected_velocity = self.__get_projected_velocity(detection.azimuth, detection.altitude, ponderated_velocity, radiant_steer_angle) 
                         breaking_distance = self.__get_breaking_distance(projected_velocity, asphalt_friction_deceleration)
                         reacting_distance = projected_depth - breaking_distance
                         ttc = reacting_distance / projected_velocity
                         if ttc < self.__min_ttc:  
-                            if attached_vehicle_stimated_velocity < projected_velocity * self.__escape_ratio_th:
+                            if attached_vehicle_velocity < projected_velocity * self.__escape_ratio_th:
                                 detected_escape_list.append((detection, projected_depth))
                             else:
                                 detected_action_list.append((detection, projected_depth)) 
@@ -121,11 +129,16 @@ class Forward_collision_warning_mqtt:
                 self.__analize_detection(detected_warning_list, radar_data, Fcw_state.WARNING, 1, 1, 0)
                 self.__analize_detection(detected_idle_list, radar_data, Fcw_state.IDLE, 0, 1, 0)  
 
-                if not detected_escape_list and not detected_action_list and not detected_warning_list:
-                    self.__min_fcw_state = Fcw_state.IDLE
+                if not (len(detected_escape_list) > 0 or len(detected_action_list) > 0 or len(detected_warning_list) > 0):
+                    self.__idle_counter += 1
+                    if self.__idle_counter >= self.__idle_counter_th:
+                        self.__min_fcw_state = Fcw_state.IDLE
+                else:
+                    self.__idle_counter = 0
 
             else:
                 self.__min_fcw_state = Fcw_state.IDLE
+                self.__idle_counter = 0
 
         # Support 
         def __analize_detection(self, detected_point_list, radar_data, fwd_state, red, green, blue, listener = lambda: None):
