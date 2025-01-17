@@ -2,6 +2,28 @@
 
 """
 Welcome to CARLA FCW
+
+
+Traceback (most recent call last):
+  File "c:/Users/rares.vasiliu/Downloads/SVS-24-FCW-main (1)/SVS-24-FCW-main/manual_control_steeringwheel.py", line 755, in game_loop
+    if controller.parse_events(client, world, clock, args.sync, stop_flag):
+  File "c:/Users/rares.vasiliu/Downloads/SVS-24-FCW-main (1)/SVS-24-FCW-main/manual_control_steeringwheel.py", line 543, in parse_events
+    world.restart()
+  File "c:/Users/rares.vasiliu/Downloads/SVS-24-FCW-main (1)/SVS-24-FCW-main/manual_control_steeringwheel.py", line 111, in restart
+    self.destroy()
+  File "c:/Users/rares.vasiliu/Downloads/SVS-24-FCW-main (1)/SVS-24-FCW-main/manual_control_steeringwheel.py", line 146, in destroy
+    sensor.destroy()
+RuntimeError: trying to operate on a destroyed actor; an actor's function was called, but the actor is already destroyed.
+
+During handling of the above exception, another exception occurred:
+    game_loop(args)
+  File "c:/Users/rares.vasiliu/Downloads/SVS-24-FCW-main (1)/SVS-24-FCW-main/manual_control_steeringwheel.py", line 768, in game_loop
+    world.destroy()
+  File "c:/Users/rares.vasiliu/Downloads/SVS-24-FCW-main (1)/SVS-24-FCW-main/manual_control_steeringwheel.py", line 146, in destroy
+    sensor.destroy()
+RuntimeError: trying to operate on a destroyed actor; an actor's function was called, but the actor is already destroyed.
+
+
 """
 
 import datetime
@@ -699,6 +721,8 @@ stop_flag = False
 def game_loop(args):
     global run, stop_flag
 
+    print("ciao")
+
     pygame.init()
     pygame.font.init()
     world = None
@@ -746,13 +770,13 @@ def game_loop(args):
 
         run_sync_simulation(sim_world)
 
-        while True:
+        while run:
             if args.sync:
                 sim_world.tick()
             clock.tick_busy_loop(60)
             if controller.parse_events(client, world, clock, args.sync, stop_flag):
                 run = False
-                return
+                break
             world.tick(clock)
             world.render(display)
             pygame.display.flip()
@@ -793,7 +817,7 @@ def main():
     argparser.add_argument(
         '--res',
         metavar='WIDTHxHEIGHT',
-        default='1280x720',
+        default='5120x1440',
         help='window resolution (default: 1280x720)')
     argparser.add_argument(
         '--rolename',
