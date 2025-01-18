@@ -10,6 +10,10 @@ class SyncSimulation(object):
     def set_synchronous_mode(self, synchronous_mode_flag):
         settings = self.world.get_settings()
         settings.synchronous_mode = synchronous_mode_flag
+        if synchronous_mode_flag:
+            settings.fixed_delta_seconds = 1 / 20
+        else: 
+            settings.fixed_delta_seconds = None
         self.world.apply_settings(settings)
         self.world.tick()
 

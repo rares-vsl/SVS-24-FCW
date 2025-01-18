@@ -81,7 +81,7 @@ def get_asphalt_friction_coefficient(world):
     weather = world.get_weather()
     weather.precipitation_deposits
     weather.wetness
-    return 1
+    return 0.8
 
 class World(object):
     def __init__(self, carla_world, traffic_manager, hud, args):
@@ -229,8 +229,7 @@ class World(object):
         adas = Forward_collision_warning_mqtt(
             world = world,
             attached_vehicle = vehicle,
-            min_ttc=0.5,
-            # min_ttc=0,
+            min_ttc=0,
             get_asphalt_friction_coefficient = lambda : get_asphalt_friction_coefficient(self.world),
             action_listener = lambda : World.stop_vehicle(vehicle)
         )
@@ -697,6 +696,10 @@ class DualControl(object):
 def set_synchronous_mode(world, synchronous_mode_flag):
     settings = world.get_settings()
     settings.synchronous_mode = synchronous_mode_flag
+    if synchronous_mode_flag:
+        settings.fixed_delta_seconds = 1 / 20
+    else: 
+        settings.fixed_delta_seconds = None
     world.apply_settings(settings)
     world.tick()
 
@@ -807,7 +810,7 @@ def main():
     argparser.add_argument(
         '-p', '--port',
         metavar='P',
-        default=2025,
+        default=2000,
         type=int,
         help='TCP port to listen to (default: 2000)')
     argparser.add_argument(

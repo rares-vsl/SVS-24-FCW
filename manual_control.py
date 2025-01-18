@@ -39,7 +39,7 @@ def get_asphalt_friction_coefficient(world):
     weather = world.get_weather()
     weather.precipitation_deposits
     weather.wetness
-    return 1
+    return 0.8
 
 class World(object):
     def __init__(self, carla_world, hud, brake_system,args):
@@ -158,8 +158,7 @@ class World(object):
         adas = Forward_collision_warning_mqtt(
             world = world,
             attached_vehicle = vehicle,
-            min_ttc=0.5,
-            # min_ttc=0,
+            min_ttc=0,
             get_asphalt_friction_coefficient = lambda : get_asphalt_friction_coefficient(self.world),
             action_listener = lambda : self.brake_system.stop_vehicle(vehicle)
         )
@@ -577,6 +576,10 @@ class SyncSimulation(object):
     def set_synchronous_mode(self, synchronous_mode_flag):
         settings = self.world.get_settings()
         settings.synchronous_mode = synchronous_mode_flag
+        if synchronous_mode_flag:
+            settings.fixed_delta_seconds = 1 / 20
+        else: 
+            settings.fixed_delta_seconds = None
         self.world.apply_settings(settings)
         self.world.tick()
 
@@ -673,8 +676,8 @@ def game_loop(args):
 
         while True:
             if args.sync:
-                sim_world.tick()
-            clock.tick_busy_loop(60)
+                sim_world.tick() 
+            clock.tick_busy_loop(20)
             if controller.parse_events(client, world, clock, args.sync):
                 simulation.stop_simulation()
                 return
