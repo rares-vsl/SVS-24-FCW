@@ -11,6 +11,7 @@ Una volta aperto lo zip contenente tutti i codici, si avranno davanti diversi fi
 - **File `requirements.txt`**: contiene tutte le dipendenze necessarie per eseguire gli script in esame.
 - **File `Scenari_d_uso.ipynb`**: notebook Jupyter con tutti i casi d'uso su cui è stato testato il sistema in questione.
 - **File `SyncSimulation.py`**: classe Python essenziale per il corretto funzionamento dell'Adas implementata nei casi d'uso sopracitati.
+- **File `wheel_config.ini`**: file di configurazione per il volante G29.
 
 Di seguito saranno descritte le istruzioni di deployment per i vari file.
 
@@ -86,15 +87,15 @@ Impostando il parametro `debug` su `True` e configurando gli altri due parametri
 
 I punti visualizzati resteranno sullo schermo per un tempo pari al valore impostato in `visual_debug_pixel_life_time`.
 
-## `BrakeSystem`
+## `BrakeSystem.py`
 
 La classe `BrakeSystem` ha lo scopo di centralizzare la logica di blocco dei veicoli nei casi di guida manuale (sia con sterzo che senza). Invocando il metodo `stop_vehicle` e passando il riferimento del veicolo, la sua accelerazione viene impostata a zero e i freni vengono attivati.
 
 La classe include inoltre un booleano, denominato `stop_flag`, utilizzato per segnalare l'attivazione del meccanismo di arresto. Questo flag viene impostato a `TRUE` all'inizio dell'automazione e riportato a `FALSE` dopo due secondi, tramite un thread secondario che entra in modalità *sleep* per il tempo specificato.
 
 L'idea alla base è che, negli script di guida manuale, venga introdotta una condizione per cui, se il valore del booleano è positivo (`TRUE`), i comandi dell'utente non vengano considerati. In questo modo si evita che l'intervento manuale interferisca con il meccanismo di frenata.
-
-## Script per il controllo manuale del veicolo
+`
+## `manual_control_steeringwheel.py` e `manual_control.py`
 
 Come anticipato, nella directory sono presenti due script per la guida manuale. Si tratta di versioni modificate degli script esempio forniti con CARLA, a cui è stato aggiunto il codice necessario per l'integrazione con il sistema Adas.
 
@@ -102,7 +103,7 @@ Per il resto, gli script rimangono invariati rispetto agli originali, ad eccezio
 
 È importante sottolineare che questi script sono stati progettati come semplici demo.
 
-## Readme e Requirements
+## `Readme.md` e `Requirements.txt`
 
 Come anticipato, `readme.md` e `requirements.txt` svolgono una funzione di supporto: Il primo è una copia di questo capitolo, utile per fornire una descrizione generale del deployment del progetto. Il secondo contiene l'elenco di tutte le librerie necessarie per eseguire i vari script presenti nella directory.
 
@@ -112,13 +113,13 @@ Il file `requirements.txt` è una versione modificata dell'omonimo file presente
 python install -r requirements.txt
 ```
 
-## Scenari d'uso
+## `Scenari_d_uso.ipynb`
 
 Il notebook raccoglie tutti gli scenari d'uso descritti in precedenza ed è suddiviso in tre blocchi principali. I primi due blocchi, *SCENARI D'USO* e *FUNZIONI DI SUPPORTO*, sono obbligatori e servono per la configurazione, mentre il terzo blocco include i 6+1 scenari menzionati.
 
 Ogni scenario può essere eseguito singolarmente senza la necessità di aver completato gli scenari precedenti. Tuttavia, è importante notare che gli ultimi due (Scenario 5 e Scenario 6) richiedono una mappa diversa rispetto ai primi quattro; pertanto, è necessario attendere il caricamento della stessa prima di procedere.
 
-## `SyncSimulation`
+## `SyncSimulation.py`
 
 Il modello di radar implementato nel simulatore presenta una serie di limitazioni intrinseche.
 
@@ -131,3 +132,7 @@ La classe `SyncSimulation` è progettata appositamente per gestire questa modali
 Inoltre, nelle impostazioni della simulazione, viene modificato il parametro *fixed_delta_seconds*, impostandolo a 0.05. Questo garantisce che tra un frame e l'altro trascorra sempre lo stesso intervallo di tempo simulato, fornendo ulteriore stabilità al sistema.
 
 Infine, negli script per la guida autonoma, oltre ad implementare `SyncSimulation`, si è dovuto anche limitare il numero degli FPS a 20.
+
+## `wheel_config.ini`
+
+Il file `wheel_config.ini` è un file di configurazione essenziale per l'esecuzione dello script `manual_control_steeringwheel.py`. Esso contiene i parametri necessari per configurare il volante G29.
