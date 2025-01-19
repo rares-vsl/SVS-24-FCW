@@ -3,10 +3,10 @@ import time
 
 
 class SyncSimulation(object):
-    def __init__(self, world):
+    def __init__(self, world, tick_delay = 0.05):
         self.run = True
         self.world = world
-        self.tick_delay = 0.05
+        self.tick_delay = tick_delay
 
     def set_synchronous_mode(self, synchronous_mode_flag):
         settings = self.world.get_settings()
