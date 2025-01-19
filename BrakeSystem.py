@@ -25,12 +25,7 @@ class BrakeSystem(object):
         control.hand_brake = True
 
         if constant_velocity_enabled:
-            print("TURE")
             vehicle.disable_constant_velocity()
             
-            vehicle.apply_control(control)
-            t = threading.Thread(target=self.delayer_stop)
-            t.start()
-        else:
-            vehicle.apply_control(control)
-            threading.Thread(target=self.delayer_stop).start()
+        vehicle.apply_control(control)
+        threading.Thread(target=self.delayer_stop).start()

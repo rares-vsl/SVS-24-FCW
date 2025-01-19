@@ -6,12 +6,13 @@ class SyncSimulation(object):
     def __init__(self, world):
         self.run = True
         self.world = world
+        self.tick_delay = 0.05
 
     def set_synchronous_mode(self, synchronous_mode_flag):
         settings = self.world.get_settings()
         settings.synchronous_mode = synchronous_mode_flag
         if synchronous_mode_flag:
-            settings.fixed_delta_seconds = 1 / 20
+            settings.fixed_delta_seconds = self.tick_delay, 
         else: 
             settings.fixed_delta_seconds = None
         self.world.apply_settings(settings)
@@ -21,7 +22,7 @@ class SyncSimulation(object):
     def simulation_ticker(self):
         self.set_synchronous_mode(True)
         while self.run:
-            time.sleep(0.05)
+            time.sleep(self.tick_delay)
             self.world.tick()
         self.set_synchronous_mode(False)
 
