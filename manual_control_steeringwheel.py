@@ -2,28 +2,6 @@
 
 """
 Welcome to CARLA FCW
-
-
-Traceback (most recent call last):
-  File "c:/Users/rares.vasiliu/Downloads/SVS-24-FCW-main (1)/SVS-24-FCW-main/manual_control_steeringwheel.py", line 755, in game_loop
-    if controller.parse_events(client, world, clock, args.sync, stop_flag):
-  File "c:/Users/rares.vasiliu/Downloads/SVS-24-FCW-main (1)/SVS-24-FCW-main/manual_control_steeringwheel.py", line 543, in parse_events
-    world.restart()
-  File "c:/Users/rares.vasiliu/Downloads/SVS-24-FCW-main (1)/SVS-24-FCW-main/manual_control_steeringwheel.py", line 111, in restart
-    self.destroy()
-  File "c:/Users/rares.vasiliu/Downloads/SVS-24-FCW-main (1)/SVS-24-FCW-main/manual_control_steeringwheel.py", line 146, in destroy
-    sensor.destroy()
-RuntimeError: trying to operate on a destroyed actor; an actor's function was called, but the actor is already destroyed.
-
-During handling of the above exception, another exception occurred:
-    game_loop(args)
-  File "c:/Users/rares.vasiliu/Downloads/SVS-24-FCW-main (1)/SVS-24-FCW-main/manual_control_steeringwheel.py", line 768, in game_loop
-    world.destroy()
-  File "c:/Users/rares.vasiliu/Downloads/SVS-24-FCW-main (1)/SVS-24-FCW-main/manual_control_steeringwheel.py", line 146, in destroy
-    sensor.destroy()
-RuntimeError: trying to operate on a destroyed actor; an actor's function was called, but the actor is already destroyed.
-
-
 """
 
 import datetime
@@ -31,8 +9,6 @@ import math
 import os
 import random
 import sys
-import threading
-import time
 import weakref
 import carla
 import numpy as np
@@ -43,6 +19,8 @@ import logging
 import glob
 from Adas import Forward_collision_warning_mqtt
 
+from BrakeSystem import BrakeSystem
+from SyncSimulation import SyncSimulation
 
 try:
     sys.path.append(glob.glob('../carla/dist/carla-*%d.%d-%s.egg' % (
@@ -64,15 +42,13 @@ else:
 from carla import ColorConverter as cc
 
 
-
-
 def get_actor_display_name(actor, truncate=250):
     name = ' '.join(actor.type_id.replace('_', '.').title().split('.')[1:])
     return (name[:truncate - 1] + u'\u2026') if len(name) > truncate else name
 
 def get_actor_blueprints(world):
     blueprint_library = world.get_blueprint_library()
-    vehicle_bp = blueprint_library.filter('vehicle.*')[1]
+    vehicle_bp = blueprint_library.filter('vehicle.*')[2]
 
     return vehicle_bp
 
@@ -84,11 +60,11 @@ def get_asphalt_friction_coefficient(world):
     return 0.8
 
 class World(object):
-    def __init__(self, carla_world, traffic_manager, hud, args):
+    def __init__(self, carla_world, hud, brake_system,args):
         self.world = carla_world
-        self.traffic_manager = traffic_manager
-        self.sync = args.sync
+        self.brake_system = brake_system
         self.actor_role_name = args.rolename
+
         try:
             self.map = self.world.get_map()
         except RuntimeError as error:
@@ -104,27 +80,25 @@ class World(object):
         self.restart()
         self.world.on_tick(hud.on_world_tick)
         self.constant_velocity_enabled = False
-        
     
-    def restart(self):
-        self.player_max_speed = 1.589
-        self.player_max_speed_fast = 3.713
-        cam_pos_index = self.camera_manager.transform_index if self.camera_manager is not None else 0
 
+    def get_vehicle_blueprint(self):
         blueprint = get_actor_blueprints(self.world)
-
-
         blueprint.set_attribute('role_name', self.actor_role_name)
 
         if blueprint.has_attribute('driver_id'):
             driver_id = random.choice(blueprint.get_attribute('driver_id').recommended_values)
             blueprint.set_attribute('driver_id', driver_id)
-        if blueprint.has_attribute('is_invincible'):
-            blueprint.set_attribute('is_invincible', 'true')
-        # set the max speed
-        if blueprint.has_attribute('speed'):
-            self.player_max_speed = float(blueprint.get_attribute('speed').recommended_values[1])
-            self.player_max_speed_fast = float(blueprint.get_attribute('speed').recommended_values[2])
+
+        return blueprint
+
+
+    def restart(self):
+        cam_pos_index = self.camera_manager.transform_index if self.camera_manager is not None else 0
+        
+        blueprint = self.get_vehicle_blueprint()
+        
+       
         if self.player is not None:
             spawn_point = self.player.get_transform()
             spawn_point.location.z += 2.0
@@ -132,6 +106,7 @@ class World(object):
             spawn_point.rotation.pitch = 0.0
             self.destroy()
             self.player = self.world.try_spawn_actor(blueprint, spawn_point)
+
 
             self.modify_vehicle_physics(self.player)
 
@@ -144,32 +119,35 @@ class World(object):
             spawn_point = random.choice(spawn_points) if spawn_points else carla.Transform()
             self.player = self.world.try_spawn_actor(blueprint, spawn_point)
 
-            print(self.player)
-
             self.modify_vehicle_physics(self.player)
-            # Set up the sensors.
-            self.camera_manager = CameraManager(self.player, self.hud, self._gamma)
-            self.camera_manager.transform_index = cam_pos_index
-            self.camera_manager.set_sensor()
-            actor_type = get_actor_display_name(self.player)
-            self.hud.notification(actor_type)
         
+        # Set up the sensors.
+        self.camera_manager = CameraManager(self.player, self.hud, self._gamma)
+        self.camera_manager.transform_index = cam_pos_index
+        self.camera_manager.set_sensor()
+        actor_type = get_actor_display_name(self.player)
+        self.hud.notification(actor_type)
+
+        self.world.tick()
        
-        self.adas = self.attach_adas(self.world, self.player)
+        self.adas = self.attach_adas()
 
     def destroy(self):
         sensors = [
             self.camera_manager.sensor
         ]
 
+        if self.adas is not None:
+            self.adas.destroy()
+
         for sensor in sensors:
             if sensor is not None:
                 sensor.stop()
                 sensor.destroy()
-        if self.adas is not None:
-            self.adas.destroy()
+
         if self.player is not None:
             self.player.destroy()
+        
 
     def modify_vehicle_physics(self, actor):
         try:
@@ -179,7 +157,6 @@ class World(object):
         except Exception:
             pass
 
-    
     def tick(self, clock):
         self.hud.tick(self, clock)
 
@@ -192,47 +169,15 @@ class World(object):
         self.camera_manager.sensor = None
         self.camera_manager.index = None
     
-    @staticmethod
-    def get_vehicle_velocity(vehicle):
-        velocity_vector = vehicle.get_velocity()
-        velocity = (velocity_vector.x**2 + velocity_vector.y**2 + velocity_vector.z**2)**0.5
-        if vehicle.get_control().reverse:
-            velocity = -velocity
-        return velocity   
-    
-    @staticmethod
-    def delayer_stop():
-        global stop_flag
-        time.sleep(2)
-        stop_flag = False
-    
-    @staticmethod
-    def stop_vehicle(vehicle):
-        global stop_flag
-
-        stop_flag = True
-
-        # control = carla.VehicleControl()
-        # control.throttle = 0.0
-        # control.brake = 1.0
-        # control.hand_brake = True
-        # vehicle.set_autopilot(False) 
-        # vehicle.apply_control(control)
-
-        threading.Thread(target=World.delayer_stop).start()
-
-        print(f"STOP {stop_flag}")
-
-
-
-    def attach_adas(self, world, vehicle):
+    def attach_adas(self):
         adas = Forward_collision_warning_mqtt(
-            world = world,
-            attached_vehicle = vehicle,
-            min_ttc=0,
+            world = self.world,
+            attached_vehicle = self.player,
+            min_ttc=0.3,
             get_asphalt_friction_coefficient = lambda : get_asphalt_friction_coefficient(self.world),
-            action_listener = lambda : World.stop_vehicle(vehicle)
+            action_listener = lambda : self.brake_system.stop_vehicle(self.player, self)
         )
+
         return adas
 
 
@@ -502,20 +447,19 @@ class CameraManager(object):
 
 
 class DualControl(object):
-    def __init__(self, world, start_in_autopilot):
-        self._autopilot_enabled = start_in_autopilot
-
+    def __init__(self, world):
         if isinstance(world.player, carla.Vehicle):
             self._control = carla.VehicleControl()
+            print(f"Control : {self._control}")
             self._lights = carla.VehicleLightState.NONE
-            world.player.set_autopilot(self._autopilot_enabled)
             world.player.set_light_state(self._lights)
+
         else:
             raise NotImplementedError("Actor type not supported")
         self._steer_cache = 0.0
         world.hud.notification("Press 'H' or '?' for help.", seconds=4.0)
 
-        # initialize steering wheel
+         # initialize steering wheel
         pygame.joystick.init()
         joystick_count = pygame.joystick.get_count()
         if joystick_count > 1:
@@ -535,10 +479,9 @@ class DualControl(object):
         self._handbrake_idx = int(
             self._parser.get('G29 Racing Wheel', 'handbrake'))
 
-    def parse_events(self, client, world, clock, sync_mode, stop_flag):
+    def parse_events(self, world, clock):
         if isinstance(self._control, carla.VehicleControl):
             current_lights = self._lights
-
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 return True
@@ -556,12 +499,7 @@ class DualControl(object):
                 if self._is_quit_shortcut(event.key):
                     return True
                 elif event.key == pygame.K_BACKSPACE:
-                    if self._autopilot_enabled:
-                        world.player.set_autopilot(False)
-                        world.restart()
-                        world.player.set_autopilot(True)
-                    else:
-                        world.restart()
+                   world.restart()
                 elif event.key == pygame.K_F1:
                     world.hud.toggle_info()
                 elif event.key == pygame.K_h or (event.key == pygame.K_SLASH and pygame.key.get_mods() & pygame.KMOD_SHIFT):
@@ -576,7 +514,7 @@ class DualControl(object):
                         world.constant_velocity_enabled = False
                         world.hud.notification("Disabled Constant Velocity Mode")
                     else:
-                        world.player.enable_constant_velocity(carla.Vector3D(17, 0, 0))
+                        world.player.enable_constant_velocity(carla.Vector3D(12, 0, 0))
                         world.constant_velocity_enabled = True
                         world.hud.notification("Enabled Constant Velocity Mode at 60 km/h")
   
@@ -584,46 +522,33 @@ class DualControl(object):
                     if event.key == pygame.K_q:
                         self._control.gear = 1 if self._control.reverse else -1
                         
-                    elif event.key == pygame.K_m:
-                        self._control.manual_gear_shift = not self._control.manual_gear_shift
-                        self._control.gear = world.player.get_control().gear
-                        world.hud.notification('%s Transmission' %
-                                               ('Manual' if self._control.manual_gear_shift else 'Automatic'))
                     elif self._control.manual_gear_shift and event.key == pygame.K_COMMA:
                         self._control.gear = max(-1, self._control.gear - 1)
                     elif self._control.manual_gear_shift and event.key == pygame.K_PERIOD:
                         self._control.gear = self._control.gear + 1
-                    elif event.key == pygame.K_p and not pygame.key.get_mods() & pygame.KMOD_CTRL:
-                        if not self._autopilot_enabled and not sync_mode:
-                            print("WARNING: You are currently in asynchronous mode and could "
-                                  "experience some issues with the traffic simulation")
-                        self._autopilot_enabled = not self._autopilot_enabled
-#                         tm.global_distance_to_leading_vehicle(5)
-# tm.global_percentage_speed_difference(80)
-                        world.player.set_autopilot(self._autopilot_enabled)
-                        
-                        world.traffic_manager.distance_to_leading_vehicle(world.player,0)
-                        world.hud.notification(
-                            'Autopilot %s' % ('On' if self._autopilot_enabled else 'Off'))
 
-        if not self._autopilot_enabled:
-            if isinstance(self._control, carla.VehicleControl):
-                self._parse_vehicle_keys(pygame.key.get_pressed(), clock.get_time(), stop_flag)
-                self._parse_vehicle_wheel(stop_flag)
-                self._control.reverse = self._control.gear < 0
-            elif isinstance(self._control, carla.WalkerControl):
-                self._parse_walker_keys(pygame.key.get_pressed(), clock.get_time())
-            world.player.apply_control(self._control)
+        if isinstance(self._control, carla.VehicleControl):
+            self._parse_vehicle_keys(pygame.key.get_pressed(), clock.get_time(), world.brake_system)
+            self._parse_vehicle_wheel(world.brake_system)
+            self._control.reverse = self._control.gear < 0
+            # Set automatic control-related vehicle lights
+            if self._control.brake:
+                current_lights |= carla.VehicleLightState.Brake
+            else: # Remove the Brake flag
+                current_lights &= ~carla.VehicleLightState.Brake
+            if self._control.reverse:
+                current_lights |= carla.VehicleLightState.Reverse
+            else: # Remove the Reverse flag
+                current_lights &= ~carla.VehicleLightState.Reverse
+            if current_lights != self._lights: # Change the light state only if necessary
+                self._lights = current_lights
+                world.player.set_light_state(carla.VehicleLightState(self._lights))
+            # Apply control
+            if not world.brake_system.is_active():
+                world.player.apply_control(self._control)
 
-
-
-    def _parse_vehicle_wheel(self, stop_flag):
-        if stop_flag:
-            print("stop")
-            self._control.throttle = 0
-            self._control.brake = 1
-            self._control.hand_brake = True
-
+    def _parse_vehicle_wheel(self, brake_system):
+        if brake_system.is_active():
             return
         else:
             self._control.hand_brake = False
@@ -662,14 +587,8 @@ class DualControl(object):
 
         self._control.hand_brake = bool(jsButtons[self._handbrake_idx])
 
-    def _parse_vehicle_keys(self, keys, milliseconds, stop_flag):
-        
-        if stop_flag:
-            print("stop")
-            self._control.throttle = 0
-            self._control.brake = 1
-            self._control.hand_brake = True
-
+    def _parse_vehicle_keys(self, keys, milliseconds, brake_system):
+        if brake_system.is_active():
             return
         else:
             self._control.hand_brake = False
@@ -687,71 +606,19 @@ class DualControl(object):
         self._control.brake = 1.0 if keys[pygame.K_DOWN] or keys[pygame.K_s] else 0.0
         self._control.hand_brake = keys[pygame.K_SPACE]
 
-    @staticmethod
-    def _is_quit_shortcut(key):
-        return (key == pygame.K_ESCAPE) or (key == pygame.K_q and pygame.key.get_mods() & pygame.KMOD_CTRL)
-
-
-
-def set_synchronous_mode(world, synchronous_mode_flag):
-    settings = world.get_settings()
-    settings.synchronous_mode = synchronous_mode_flag
-    if synchronous_mode_flag:
-        settings.fixed_delta_seconds = 1 / 20
-    else: 
-        settings.fixed_delta_seconds = None
-    world.apply_settings(settings)
-    world.tick()
-
-
-
-def simulation_ticker(world):
-    global run
-
-    set_synchronous_mode(world, True)
-    while run:
-        time.sleep(0.05)
-        world.tick()
-    set_synchronous_mode(world, False)
-
-
-def run_sync_simulation(world):
-    threading.Thread(target=simulation_ticker, args=((world,))).start()
-
-run = True
-stop_flag = False
 
 def game_loop(args):
-    global run, stop_flag
-
-    print("ciao")
-
     pygame.init()
     pygame.font.init()
     world = None
-    original_settings = None
+    original_settings = None 
+    # simulation = None
 
     try:
         client = carla.Client(args.host, args.port)
         client.set_timeout(2000.0)
 
         sim_world = client.get_world()
-        
-        traffic_manager = client.get_trafficmanager()
-
-        if args.sync:
-            original_settings = sim_world.get_settings()
-            settings = sim_world.get_settings()
-            if not settings.synchronous_mode:
-                settings.synchronous_mode = True
-                settings.fixed_delta_seconds = 0.05
-            sim_world.apply_settings(settings)
-
-            traffic_manager.set_synchronous_mode(True)
-
-        if args.autopilot and not sim_world.get_settings().synchronous_mode:
-            print("WARNING: You are currently in asynchronous mode and could "
-                  "experience some issues with the traffic simulation")
 
         display = pygame.display.set_mode(
             (args.width, args.height),
@@ -760,26 +627,26 @@ def game_loop(args):
         display.fill((0,0,0))
         pygame.display.flip()
 
-        hud = HUD(args.width, args.height)
-        world = World(sim_world, traffic_manager, hud, args)
-        controller = DualControl(world, args.autopilot)
 
-        if args.sync:
-            sim_world.tick()
-        else:
-            sim_world.wait_for_tick()
+        hud = HUD(args.width, args.height)
+        brake_system = BrakeSystem()
+        world = World(sim_world, hud, brake_system, args)
+    
+        controller = DualControl(world)
+        simulation = SyncSimulation(sim_world)
+
+        simulation.set_synchronous_mode(False)
+        sim_world.wait_for_tick()
 
         clock = pygame.time.Clock()
 
-        run_sync_simulation(sim_world)
+        simulation.run_sync_simulation()
 
-        while run:
-            if args.sync:
-                sim_world.tick()
-            clock.tick_busy_loop(60)
-            if controller.parse_events(client, world, clock, args.sync, stop_flag):
-                run = False
-                break
+        while True:
+            clock.tick_busy_loop(20)
+            if controller.parse_events(world, clock):
+                simulation.stop_simulation()
+                return
             world.tick(clock)
             world.render(display)
             pygame.display.flip()
@@ -814,13 +681,9 @@ def main():
         type=int,
         help='TCP port to listen to (default: 2000)')
     argparser.add_argument(
-        '-a', '--autopilot',
-        action='store_true',
-        help='enable autopilot')
-    argparser.add_argument(
         '--res',
         metavar='WIDTHxHEIGHT',
-        default='5120x1440',
+        default='1280x720',
         help='window resolution (default: 1280x720)')
     argparser.add_argument(
         '--rolename',
@@ -832,10 +695,7 @@ def main():
         default=2.2,
         type=float,
         help='Gamma correction of the camera (default: 2.2)')
-    argparser.add_argument(
-        '--sync',
-        action='store_true',
-        help='Activate synchronous mode execution')
+
     args = argparser.parse_args()
     args.width, args.height = [int(x) for x in args.res.split('x')]
     log_level = logging.DEBUG if args.debug else logging.INFO
@@ -848,7 +708,6 @@ def main():
 
     except KeyboardInterrupt:
         print('\nCancelled by user. Bye!')
-
 
 if __name__ == '__main__':
 
