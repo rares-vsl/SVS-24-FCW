@@ -105,18 +105,16 @@ class Forward_collision_warning_mqtt:
             detected_warning_list = []
             detected_idle_list = []
             if attached_vehicle_velocity > self.__velocity_th:
-                coefficient = attached_vehicle_velocity / attached_vehicle_stimated_velocity
                 for detection in filtered_radar_data:
                     projected_depth = self.__get_projected_depth(detection.azimuth, detection.altitude, detection.depth, radiant_steer_angle)
                     max_depth = self.__get_max_depth(detection.azimuth, radiant_steer_angle)
                     if projected_depth <= max_depth:
-                        ponderated_velocity = coefficient * detection.velocity
-                        projected_velocity = self.__get_projected_velocity(detection.azimuth, detection.altitude, ponderated_velocity, radiant_steer_angle) 
+                        projected_velocity = self.__get_projected_velocity(detection.azimuth, detection.altitude, detection.velocity, radiant_steer_angle) 
                         breaking_distance = self.__get_breaking_distance(projected_velocity, asphalt_friction_deceleration)
                         reacting_distance = projected_depth - breaking_distance
                         ttc = reacting_distance / projected_velocity
                         if ttc < self.__min_ttc:  
-                            if attached_vehicle_velocity < projected_velocity * self.__escape_ratio_th:
+                            if attached_vehicle_stimated_velocity < projected_velocity * self.__escape_ratio_th:
                                 detected_escape_list.append((detection, projected_depth))
                             else:
                                 detected_action_list.append((detection, projected_depth)) 
@@ -268,4 +266,5 @@ class Forward_collision_warning_mqtt:
         def destroy(self):
             self.__mqttc.loop_stop()
             self.__mqttc.disconnect()
+            self.__radar.stop()
             self.__radar.destroy()

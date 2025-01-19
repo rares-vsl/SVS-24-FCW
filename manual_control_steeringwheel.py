@@ -612,7 +612,7 @@ def game_loop(args):
     pygame.font.init()
     world = None
     original_settings = None 
-    # simulation = None
+    simulation = None
 
     try:
         client = carla.Client(args.host, args.port)
@@ -652,6 +652,8 @@ def game_loop(args):
             pygame.display.flip()
 
     finally:
+        if simulation is not None:
+            simulation.stop_simulation()
 
         if original_settings:
             sim_world.apply_settings(original_settings)
@@ -660,6 +662,7 @@ def game_loop(args):
             world.destroy()
 
         pygame.quit()
+        os._exit(0)
 
 def main():
     argparser = argparse.ArgumentParser(
