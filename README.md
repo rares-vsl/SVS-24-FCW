@@ -107,7 +107,7 @@ Per il resto, gli script rimangono invariati rispetto agli originali, ad eccezio
 
 Come anticipato, `readme.md` e `requirements.txt` svolgono una funzione di supporto: Il primo è una copia di questo capitolo, utile per fornire una descrizione generale del deployment del progetto. Il secondo contiene l'elenco di tutte le librerie necessarie per eseguire i vari script presenti nella directory.
 
-Il file `requirements.txt` è una versione modificata dell'omonimo file presente nello zip di Carla. Per comodità, sono state aggiunte le librerie `carla`, `shapely` e `networkx`, consentendo così di installare tutte le dipendenze con un unico comando:
+Il file `requirements.txt` è una versione modificata dell'omonimo file presente nello zip di Carla. Per comodità, sono state aggiunte le librerie `carla`, `shapely`,  `paho-mqtt` e `networkx`, consentendo così di installare tutte le dipendenze con un unico comando:
 
 ```
 python install -r requirements.txt

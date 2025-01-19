@@ -7,4 +7,5 @@ open3d
 Pillow
 shapely
 networkx
+paho-mqtt
 carla
