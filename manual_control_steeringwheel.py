@@ -35,7 +35,6 @@ if sys.version_info >= (3, 0):
     from configparser import ConfigParser
 
 else:
-
     from ConfigParser import RawConfigParser as ConfigParser
 
 
@@ -175,10 +174,17 @@ class World(object):
             attached_vehicle = self.player,
             min_ttc=0.3,
             get_asphalt_friction_coefficient = lambda : get_asphalt_friction_coefficient(self.world),
-            action_listener = lambda : self.brake_system.stop_vehicle(self.player, self)
+            action_listener = lambda : self.adas_action()
         )
 
         return adas
+    
+    def adas_action(self):
+        self.brake_system.stop_vehicle(self.player)
+
+        if self.constant_velocity_enabled:
+            self.constant_velocity_enabled = False
+            self.player.disable_constant_velocity()
 
 
 class HUD(object):
@@ -516,7 +522,7 @@ class DualControl(object):
                     else:
                         world.player.enable_constant_velocity(carla.Vector3D(12, 0, 0))
                         world.constant_velocity_enabled = True
-                        world.hud.notification("Enabled Constant Velocity Mode at 60 km/h")
+                        world.hud.notification("Enabled Constant Velocity Mode at 40 km/h")
   
                 if isinstance(self._control, carla.VehicleControl):
                     if event.key == pygame.K_q:
@@ -612,7 +618,6 @@ def game_loop(args):
     pygame.font.init()
     world = None
     original_settings = None 
-    simulation = None
 
     try:
         client = carla.Client(args.host, args.port)
@@ -652,8 +657,6 @@ def game_loop(args):
             pygame.display.flip()
 
     finally:
-        if simulation is not None:
-            simulation.stop_simulation()
 
         if original_settings:
             sim_world.apply_settings(original_settings)
