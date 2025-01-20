@@ -12,7 +12,7 @@ class SyncSimulation(object):
         settings = self.world.get_settings()
         settings.synchronous_mode = synchronous_mode_flag
         if synchronous_mode_flag:
-            settings.fixed_delta_seconds = self.tick_delay, 
+            settings.fixed_delta_seconds = self.tick_delay
         else: 
             settings.fixed_delta_seconds = None
         self.world.apply_settings(settings)
