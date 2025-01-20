@@ -15,8 +15,7 @@ class BrakeSystem(object):
     def is_active(self):
         return self.stop_flag
     
-    
-    def stop_vehicle(self, vehicle, constant_velocity_enabled):
+    def stop_vehicle(self, vehicle):
         control = carla.VehicleControl()
         
         self.stop_flag = True
@@ -24,8 +23,5 @@ class BrakeSystem(object):
         control.brake = 1.0
         control.hand_brake = True
 
-        if constant_velocity_enabled:
-            vehicle.disable_constant_velocity()
-            
         vehicle.apply_control(control)
         threading.Thread(target=self.delayer_stop).start()
