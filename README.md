@@ -1,6 +1,6 @@
 # DEPLOYMENT
 
-Una volta aperto lo zip contenente tutti i codici, si avranno davanti diversi file:
+Una volta aperto la repository contenente tutti i codici, si avranno i seguenti file:
 
 - **Cartella `agents`**: contiene tutti gli script standard di Carla relativi agli agenti e necessari per eseguire le simulazioni.
 - **File `Adas.py`**: racchiude il codice relativo al sistema Adas in questione.
@@ -20,8 +20,6 @@ Di seguito saranno descritte le istruzioni di deployment per i vari file.
 Nel simulatore CARLA, gli agenti sono script o moduli che controllano i veicoli autonomi per navigare nell'ambiente simulato. Nel contesto di questo lavoro, essi vengono utilizzati per le simulazioni relative agli scenari d'uso descritti in precedenza.
 
 Normalmente, questi file sono inclusi all'interno dello zip del simulatore CARLA stesso. Tuttavia, si è scelto di copiarli nella directory principale per evitare dipendenze legate al loro percorso originale.
-
-Per i fini di questo report, non è necessario approfondire ulteriormente l'argomento.
 
 ## `Adas.py`
 
@@ -69,6 +67,8 @@ Dopo l'avvio del codice dell'Adas, ogni volta che vengono rilevati più di `dete
 - **port**: `1883`
 - **topic**: `carla/fcw_state`
 
+Il messaggi saranno di tre tipi e pari a ESCAPE, ACTION e WARNING.
+
 ### Debug
 
 Come descritto in precedenza, il debug può essere configurato utilizzando i seguenti parametri:
@@ -93,13 +93,13 @@ La classe `BrakeSystem` ha lo scopo di centralizzare la logica di blocco dei vei
 
 La classe include inoltre un booleano, denominato `stop_flag`, utilizzato per segnalare l'attivazione del meccanismo di arresto. Questo flag viene impostato a `TRUE` all'inizio dell'automazione e riportato a `FALSE` dopo due secondi, tramite un thread secondario che entra in modalità *sleep* per il tempo specificato.
 
-L'idea alla base è che, negli script di guida manuale, venga introdotta una condizione per cui, se il valore del booleano è positivo (`TRUE`), i comandi dell'utente non vengano considerati. In questo modo si evita che l'intervento manuale interferisca con il meccanismo di frenata.
+L'idea alla base è che, negli script di guida manuale, venga introdotta una condizione per cui, se il valore del booleano è positivo (`TRUE`), i comandi dell'utente non vengano considerati. In questo modo si evita che l'intervento manuale interferisca con il meccanismo di frenata automatica.
 `
 ## `manual_control_steeringwheel.py` e `manual_control.py`
 
-Come anticipato, nella directory sono presenti due script per la guida manuale. Si tratta di versioni modificate degli script esempio forniti con CARLA, a cui è stato aggiunto il codice necessario per l'integrazione con il sistema Adas.
+Come anticipato, nella directory sono presenti due script per la guida manuale. Si tratta di versioni modificate degli script esempio forniti con CARLA ai quali è stato aggiunto il codice necessario per l'integrazione con il sistema ADAS e e una serie di modifiche per adattarli al contesto in esame. 
 
-Per il resto, gli script rimangono invariati rispetto agli originali, ad eccezione di due modifiche principali: l'adattamento dei parametri per l'esecuzione in modalità sincrona e la rimozione della possibilità di guida autonoma. La modalità sincrona è stata esclusa in quanto rappresenta un ostacolo in questo contesto, mentre la guida autonoma non è coerente con lo scopo delle modifiche apportate.
+Tali modifiche consistono principalmente nella rimozione di tutti i sensori non attinenti al sistema realizzato, delle funzionalità superflue (apertura porte, accensione luci, etc) e delle funzionalità che o vanno in contrasto con lo scopo della guida manuale (guida autonoma) o con la corretta esecuzione di essa (scelta della modalità sincrona). Invece, tra le funzionalità presenti negli script originali, si è deciso di tenere la possibilità di impostare una velocità costate, settandola a 40km/h e disattivandola automaticamente quando viene attivato il sistema di frenata automatica.
 
 È importante sottolineare che questi script sono stati progettati come semplici demo.
 
@@ -127,7 +127,7 @@ In particolare, è stato osservato che, con alti valori di FPS, il sensore diven
 
 Per ovviare a tali problematiche, si utilizza la modalità sincrona, limitando il numero di FPS a circa 20. In questo modo, il sensore opera correttamente su qualsiasi hardware.
 
-La classe `SyncSimulation` è progettata appositamente per gestire questa modalità: attiva e disattiva la modalità sincrona e avvia un thread che, ogni 0.05 secondi, richiama la funzione `tick` per aggiornare il simulatore.
+La classe `SyncSimulation` è progettata appositamente per gestire questa situazione: attiva e disattiva la modalità sincrona e avvia un thread che, ogni 0.05 secondi, richiama la funzione `tick` per aggiornare il simulatore.
 
 Inoltre, nelle impostazioni della simulazione, viene modificato il parametro *fixed_delta_seconds*, impostandolo a 0.05. Questo garantisce che tra un frame e l'altro trascorra sempre lo stesso intervallo di tempo simulato, fornendo ulteriore stabilità al sistema.
 
@@ -135,4 +135,4 @@ Infine, negli script per la guida autonoma, oltre ad implementare `SyncSimulatio
 
 ## `wheel_config.ini`
 
-Il file `wheel_config.ini` è un file di configurazione essenziale per l'esecuzione dello script `manual_control_steeringwheel.py`. Esso contiene i parametri necessari per configurare il volante G29.
+Il file `wheel_config.ini` è un file di configurazione essenziale per l'esecuzione dello script `manual_control_steeringwheel.py`. Esso contiene i parametri necessari per settare il volante G29.

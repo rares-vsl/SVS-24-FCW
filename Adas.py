@@ -118,7 +118,7 @@ class Forward_collision_warning_mqtt:
                                 detected_escape_list.append((detection, projected_depth))
                             else:
                                 detected_action_list.append((detection, projected_depth)) 
-                        elif ttc < self.__min_ttc + self.__average_reaction_time:
+                        elif ttc < self.__average_reaction_time:
                             detected_warning_list.append((detection, projected_depth))
                         else:
                             detected_idle_list.append((detection, projected_depth))
