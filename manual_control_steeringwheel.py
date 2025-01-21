@@ -172,7 +172,7 @@ class World(object):
         adas = Forward_collision_warning_mqtt(
             world = self.world,
             attached_vehicle = self.player,
-            min_ttc=0.3,
+            min_ttc=0.1,
             get_asphalt_friction_coefficient = lambda : get_asphalt_friction_coefficient(self.world),
             action_listener = lambda : self.adas_action()
         )
@@ -498,6 +498,15 @@ class DualControl(object):
                     world.hud.toggle_info()
                 elif event.button == 2:
                     world.camera_manager.toggle_camera()
+                elif event.button == 3:
+                    if world.constant_velocity_enabled:
+                        world.player.disable_constant_velocity()
+                        world.constant_velocity_enabled = False
+                        world.hud.notification("Disabled Constant Velocity Mode")
+                    else:
+                        world.player.enable_constant_velocity(carla.Vector3D(12, 0, 0))
+                        world.constant_velocity_enabled = True
+                        world.hud.notification("Enabled Constant Velocity Mode at 40 km/h")
                 elif event.button == self._reverse_idx:
                     self._control.gear = 1 if self._control.reverse else -1
 
@@ -552,6 +561,11 @@ class DualControl(object):
             # Apply control
             if not world.brake_system.is_active():
                 world.player.apply_control(self._control)
+
+
+    @staticmethod
+    def _is_quit_shortcut(key):
+        return (key == pygame.K_ESCAPE) or (key == pygame.K_q and pygame.key.get_mods() & pygame.KMOD_CTRL)
 
     def _parse_vehicle_wheel(self, brake_system):
         if brake_system.is_active():

@@ -173,7 +173,7 @@ class World(object):
         adas = Forward_collision_warning_mqtt(
             world = self.world,
             attached_vehicle = self.player,
-            min_ttc=0.3,
+            min_ttc=0.1,
             get_asphalt_friction_coefficient = lambda : get_asphalt_friction_coefficient(self.world),
             action_listener = lambda : self.adas_action()
         )
